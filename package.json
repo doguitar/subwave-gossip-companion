@@ -1,0 +1,14 @@
+{
+  "name": "station-gossip-companion",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Persona-aware fictional station gossip companion for Subwave",
+  "scripts": {
+    "start": "node src/cli.js serve",
+    "gossip:seed": "node src/cli.js seed",
+    "gossip:refresh": "node src/cli.js refresh",
+    "gossip:ingest-spoken": "node src/cli.js ingest-spoken",
+    "test": "node --test test/*.test.js"
+  }
+}

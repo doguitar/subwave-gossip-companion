@@ -1,0 +1,5 @@
+# Station gossip companion — use the host scheduler. Times assume the station timezone.
+# Daily seed before programming begins
+0 4 * * * cd /opt/station-gossip-companion && node src/cli.js seed
+# Recurring spoken-event ingestion
+*/5 * * * * cd /opt/station-gossip-companion && node src/cli.js ingest-spoken
