@@ -24,6 +24,13 @@ export function loadConfig(env = process.env) {
   const errors = [];
   const baseDir = path.resolve(env.GOSSIP_BASE_DIR || '.');
   const resolveBase = (value, fallback) => path.resolve(baseDir, value || fallback);
+  const resolveState = (value) => {
+    const candidate = path.resolve(baseDir, value || path.join('data', 'gossip-state.json'));
+    const relative = path.relative(baseDir, candidate);
+    return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+      ? candidate
+      : path.join(baseDir, 'data', 'gossip-state.json');
+  };
   const apiUrl = (env.SUBWAVE_API_URL || '').trim().replace(/\/+$/, '');
   const apiUser = (env.SUBWAVE_API_USER || '').trim();
   const apiPassword = (env.SUBWAVE_API_PASSWORD || env.SUBWAVE_API_TOKEN || '').trim();
@@ -45,7 +52,7 @@ export function loadConfig(env = process.env) {
   }
 
   const host = (env.GOSSIP_HOST || '0.0.0.0').trim();
-  const statePath = resolveBase(env.GOSSIP_STATE_PATH, path.join('data', 'gossip-state.json'));
+  const statePath = resolveState(env.GOSSIP_STATE_PATH);
   const feedBaseUrl = (env.GOSSIP_FEED_BASE_URL || '').trim();
   const timezone = (env.GOSSIP_TIMEZONE || '').trim();
 

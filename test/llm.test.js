@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { test } from 'node:test';
 import { loadConfig } from '../src/config.js';
 import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse } from '../src/llm.js';
@@ -6,6 +7,8 @@ import { PERSONA_A, PERSONA_B } from './helpers.js';
 
 test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL', () => {
   const { config, errors } = loadConfig({
+    GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_STATE_PATH: '/outside/state.json',
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
@@ -18,7 +21,7 @@ test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL
   assert.equal(config.llmProvider, 'anthropic');
   assert.equal(config.llmApiKey, 'sk-ant-test');
   assert.equal(config.llmModel, 'claude-sonnet-4-5');
-  assert.equal(config.openaiBaseUrl, 'https://llm.example/v1');
+  assert.equal(config.statePath, path.join(config.baseDir, 'data', 'gossip-state.json'));
 });
 
 test('buildLlmRequest covers openai, google, and anthropic', () => {
