@@ -95,6 +95,7 @@ Use the included `crontab` for daily seeding and recurring spoken-event ingestio
 
 Install the container template directly into the Community Applications templates directory:
 
+```bash
 curl -fsSL https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/main/unraid/my-subwave-gossip-companion.xml \
   -o /boot/config/plugins/dockerMan/templates-user/my-subwave-gossip-companion.xml
 ```
