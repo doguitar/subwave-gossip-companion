@@ -13,7 +13,7 @@ Return JSON only. No markdown.
 - Make it funny: use a sharp, specific, in-character comic beat rather than generic silliness.
 - Adult themes are allowed, including bawdy humor, innuendo, flirtation, and embarrassing grown-up situations.
 - Do not write "told" or "said on air". That wrapper is added after you.
-
+- The rumor must be at least 20 characters long; never answer with only an ellipsis or a similarly tiny fragment.
 ## Targets
 - If rumor-targets are listed, the rumor is ABOUT those people. Use their exact display names in the rumor.
 - Write the rumor in a way that fits their souls (voice, habits, obsessions) and the teller's soul (how they would phrase a scrap of hallway talk).

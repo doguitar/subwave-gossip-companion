@@ -6,10 +6,10 @@ export function parseToldShape(text) {
   return { tellerName: m[1].trim(), hearerName: (m[2] || '').trim(), rumor: m[3] };
 }
 
-export function validateRumor(rumor, { targets = [] } = {}) {
+export function validateRumor(rumor, { targets = [], minLength = 20 } = {}) {
   const text = String(rumor || '').trim();
-  if (!text) return { ok: false, reason: 'empty-text' };
   if (/^(?:string|text|rumor|example)$/i.test(text)) return { ok: false, reason: 'placeholder-text' };
+  if (text.length < minLength) return { ok: false, reason: 'too-short' };
   for (const target of targets) {
     if (target?.name && !text.toLowerCase().includes(String(target.name).toLowerCase())) {
       return { ok: false, reason: 'missing-target-name' };

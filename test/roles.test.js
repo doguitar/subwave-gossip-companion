@@ -49,11 +49,12 @@ test('multiple hearers use and-list wrap', () => {
   );
 });
 
-test('seed prompt includes souls and pre-picked rumor targets', () => {
+test('seed prompt includes house rules and pre-picked rumor targets', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
-  const prompt = seedUserPrompt({ personas: roster, day: '2026-09-19', roles });
-  assert.match(prompt, /Dry, short sentences/);
-  assert.match(prompt, /Collects unused jingles/);
+  const prompt = seedUserPrompt({ houseRules: 'Adult language is allowed after 10 PM.', day: '2026-09-19', roles });
+  assert.match(prompt, /Adult language is allowed after 10 PM/);
+  assert.doesNotMatch(prompt, /Dry, short sentences/);
+  assert.doesNotMatch(prompt, /Collects unused jingles/);
   assert.match(prompt, /Rumor-targets[\s\S]*Gamma/);
   assert.match(prompt, /Teller \(already chosen\): Alpha/);
 });

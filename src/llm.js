@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { appendLlmCall } from './callLog.js';
-import { joinNames, personaSoul } from './roles.js';
+import { joinNames } from './roles.js';
 
 export const SEED_SYSTEM = `You invent one fictional radio-station rumor for a corkboard.
 
@@ -31,13 +31,7 @@ export const DEFAULT_MODELS = {
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 
-export function formatSouls(personas) {
-  return (personas || []).map((p) => {
-    const soul = personaSoul(p);
-    return `### ${p.name} (${p.id})\n${soul || '(no soul on file — use the name and station role only)'}`;
-  }).join('\n\n');
-}
-export function seedUserPrompt({ personas, day, roles, existing = [], previousTidbit = '' }) {
+export function seedUserPrompt({ houseRules = '', day, roles, existing = [], previousTidbit = '' }) {
   const hearers = roles.hearers.length
     ? roles.hearers.map((p) => `${p.name} (${p.id})`).join(', ')
     : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
@@ -56,8 +50,8 @@ Rumor-targets (already chosen): ${targets}
 ${evolution}
 Write one rumor in the teller's voice, about the rumor-targets when any are listed.
 
-## Station souls
-${formatSouls(personas) || '(no personas)'}
+## DJ house rules
+${String(houseRules || '(no house rules)').trim()}
 
 Do not retell:
 ${avoid}`;
@@ -218,7 +212,7 @@ export function parseLlmResponse(provider, data) {
 
 export async function generateSeed({
   config,
-  personas,
+  houseRules,
   day,
   roles,
   existing = [],
@@ -226,10 +220,6 @@ export async function generateSeed({
   fetchImpl = fetch,
   log,
 }) {
-  if (config.llmFixturePath) {
-    const raw = await readFile(config.llmFixturePath, 'utf8');
-    return JSON.parse(raw);
-  }
   const systemPrompt = config.systemPrompt || SEED_SYSTEM;
 
   const provider = config.llmProvider || 'openai';
@@ -239,7 +229,7 @@ export async function generateSeed({
     throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to generate gossip'), { code: 'CONFIG' });
   }
 
-  const user = seedUserPrompt({ personas, day, roles, existing, previousTidbit });
+  const user = seedUserPrompt({ houseRules, day, roles, existing, previousTidbit });
   log?.info?.(`[gossip] LLM prompt system:\n${systemPrompt}\n[gossip] LLM prompt user:\n${user}`);
   const request = buildLlmRequest({
     provider,
@@ -254,7 +244,11 @@ export async function generateSeed({
     headers: request.headers,
     body: JSON.stringify(request.body),
   });
-  if (!res.ok) throw new Error(`LLM seed request failed: HTTP ${res.status}`);
+  if (!res.ok) {
+    const error = new Error(`LLM seed request failed: HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
   const data = await res.json();
   await appendLlmCall(config.llmCallLogPath, {
     at: new Date().toISOString(),

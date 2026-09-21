@@ -96,6 +96,7 @@ export function loadConfig(env = process.env) {
   }
   const ttsTimeoutMs = Number(env.GOSSIP_TTS_TIMEOUT_MS ?? String(5 * 60 * 1000));
   const ttsPollMs = Number(env.GOSSIP_TTS_POLL_MS ?? '3000');
+  const minRumorLength = Number(env.GOSSIP_MIN_RUMOR_LENGTH ?? '20');
   const config = {
     baseDir,
     promptPath,
@@ -119,6 +120,7 @@ export function loadConfig(env = process.env) {
     llmCallLogPath,
     refreshCount: Number.isInteger(refreshCount) ? refreshCount : 1,
     ttsTimeoutMs: Number.isFinite(ttsTimeoutMs) && ttsTimeoutMs > 0 ? ttsTimeoutMs : 5 * 60 * 1000,
+    minRumorLength: Number.isInteger(minRumorLength) && minRumorLength > 0 ? minRumorLength : 20,
     ttsPollMs: Number.isFinite(ttsPollMs) && ttsPollMs >= 250 ? ttsPollMs : 3000,
   };
 

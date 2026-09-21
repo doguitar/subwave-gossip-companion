@@ -77,6 +77,11 @@ export class SubwaveAdapter {
   async getSettings() {
     return this.request('/settings');
   }
+  async getHouseRules() {
+    const settings = await this.getSettings();
+    return settings?.values?.djHouseRules ?? settings?.djHouseRules ?? '';
+  }
+
 
   async getSpokenEvents({ cursor } = {}) {
     try {

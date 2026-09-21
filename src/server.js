@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { tidbitsKnownBy } from './store.js';
+import { currentTidbits, tidbitsKnownBy } from './store.js';
 import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
@@ -12,6 +12,20 @@ async function readJsonBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+export function buildTidbitPage(tidbits) {
+  const items = tidbits.map((tidbit) => `<li>${escapeHtml(tidbit.text)}</li>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Station Gossip</title></head><body><h1>Station Gossip</h1><ol>${items}</ol></body></html>`;
+}
+
 export function createServer({ store, adapter, config, log = console, watcher, generate, pickRoles }) {
   const generateFn = generate || ((args) => generateSeed({ config, log, ...args }));
   return http.createServer(async (req, res) => {
@@ -19,6 +33,11 @@ export function createServer({ store, adapter, config, log = console, watcher, g
       if (store?.reload) await store.reload();
       const url = new URL(req.url || '/', `http://${req.headers.host || `${config.host}:${config.port}`}`);
       const remote = req.socket?.remoteAddress || '-';
+      if (req.method === 'GET' && url.pathname === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(buildTidbitPage(currentTidbits(store.snapshot())));
+        return;
+      }
       log.info?.(`[gossip] ${req.method} ${url.pathname}${url.search} from ${remote}`);
       if (req.method === 'GET' && url.pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });

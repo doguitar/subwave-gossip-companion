@@ -1,6 +1,13 @@
 .git
+.github
 .env
+.gitignore
+README.md
+Dockerfile
+unraid
+crontab
 data
 logs
 node_modules
+test
 *.tmp

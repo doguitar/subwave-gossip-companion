@@ -46,6 +46,34 @@ test('getRosterPersonas prefers admin /settings souls over public schedule', asy
           ok: true,
           json: async () => ({
             values: {
+              djHouseRules: 'Adult language allowed after 10 PM.',
+              personas: [
+                { id: 'p_a', name: 'Alpha', tagline: 'First chair', soul: 'Dry, short sentences. Notices clocks.', tts: { secret: true } },
+              ],
+            },
+          }),
+        };
+      }
+      return { ok: true, json: async () => schedule };
+    },
+    log: { warn() {} },
+  });
+  const rules = await adapter.getHouseRules();
+  assert.equal(rules, 'Adult language allowed after 10 PM.');
+});
+
+test('getRosterPersonas prefers admin /settings souls over public schedule', async () => {
+  const adapter = new SubwaveAdapter({
+    apiUrl: 'http://subwave.test',
+    apiUser: 'admin',
+    apiPassword: 'secret-pass',
+    fetchImpl: async (url) => {
+      const path = String(url);
+      if (path.includes('/settings')) {
+        return {
+          ok: true,
+          json: async () => ({
+            values: {
               personas: [
                 { id: 'p_a', name: 'Alpha', tagline: 'First chair', soul: 'Dry, short sentences. Notices clocks.', tts: { secret: true } },
               ],

@@ -57,6 +57,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       adapter,
       cap: config.seedCap,
       timezone: config.timezone,
+      minLength: config.minRumorLength,
       log,
       generate: (args) => generateSeed({ config, log, ...args }),
     });
@@ -70,6 +71,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       adapter,
       cap: Number(argv[1]) || config.refreshCount || 1,
       timezone: config.timezone,
+      minLength: config.minRumorLength,
       log,
       generate: (args) => generateSeed({ config, log, ...args }),
     });

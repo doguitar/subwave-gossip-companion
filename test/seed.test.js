@@ -91,6 +91,32 @@ test('refresh retries rejected model output before failing', async () => {
   assert.equal(result.refreshed, 1);
 });
 
+test('seed retries rate limits indefinitely and preserves earlier tidbits', async () => {
+  const { store } = await tempStore();
+  let calls = 0;
+  const result = await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B] }),
+    pickRoles: () => onAir,
+    cap: 2,
+    timezone: 'UTC',
+    sleep: async () => {},
+    generate: async () => {
+      calls += 1;
+      if (calls === 2) {
+        const error = new Error('rate limited');
+        error.status = 429;
+        throw error;
+      }
+      return { rumor: `unconfirmed station item ${calls}` };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.seeded, 2);
+  assert.equal(store.snapshot().tidbits.length, 2);
+  assert.equal(calls, 3);
+});
+
 test('default refresh chains until every persona participates', async () => {
   const { store } = await tempStore();
   const adapter = stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] });

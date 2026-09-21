@@ -25,25 +25,43 @@ function tidbitFromRoles(roles, rumor, createdAt) {
   };
 }
 
-async function generateOne({ generate, roster, roles, day, existing, previousTidbit = '', createdAt, log }) {
+async function generateOne({ generate, roster, houseRules = '', roles, day, existing, previousTidbit = '', createdAt, log, sleep = defaultSleep, minLength = 20 }) {
   const maxAttempts = 3;
   let lastReason = 'empty-text';
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const payload = await generate({
-      personas: roster,
-      day,
-      roles,
-      existing,
-      previousTidbit,
-      attempt,
-    });
-    const rumor = rumorFromPayload(payload);
-    const check = validateRumor(rumor, { targets: roles.targets });
-    if (check.ok) return { ok: true, tidbit: tidbitFromRoles(roles, rumor, createdAt) };
-    lastReason = check.reason;
-    log.warn?.(`[gossip] rumor rejected attempt=${attempt}/${maxAttempts}: ${check.reason}`);
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      const payload = await generate({
+        personas: roster,
+        houseRules,
+        day,
+        roles,
+        existing,
+        previousTidbit,
+        attempt,
+      });
+      const rumor = rumorFromPayload(payload);
+      const check = validateRumor(rumor, { targets: roles.targets, minLength });
+      if (check.ok) return { ok: true, tidbit: tidbitFromRoles(roles, rumor, createdAt) };
+      lastReason = check.reason;
+      log.warn?.(`[gossip] rumor rejected attempt=${attempt}/${maxAttempts}: ${check.reason}`);
+    } catch (err) {
+      if (err?.status === 429) {
+        const delay = Math.min(60_000, 1_000 * (2 ** Math.min(attempt - 1, 5)));
+        log.warn?.(`[gossip] LLM rate limited; retrying in ${delay}ms`);
+        await sleep(delay);
+        attempt -= 1;
+        continue;
+      }
+      throw err;
+    }
   }
   return { ok: false, reason: lastReason };
+}
+
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function seedGossip({
@@ -55,61 +73,58 @@ export async function seedGossip({
   log = console,
   timezone,
   pickRoles,
+  sleep,
+  minLength = 20,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
-  const roster = await adapter.getRosterPersonas();
+  const [roster, houseRules] = await Promise.all([
+    adapter.getRosterPersonas(),
+    adapter.getHouseRules ? adapter.getHouseRules() : '',
+  ]);
   const tz = timezone || (await timezoneFromSchedule(adapter)) || 'UTC';
   const day = stationDay(now, tz);
 
-  return store.mutate(async (state) => {
-    const createdAt = now.toISOString();
-    const seen = new Set(currentTidbits(state).map(tidbitKey));
-    let seeded = 0;
-    let rejected = 0;
-    for (let i = 0; i < cap; i += 1) {
-      const roles = chooseRoles(roster);
-      if (!roles) {
-        rejected += 1;
-        continue;
-      }
-      const result = await generateOne({
-        generate,
-        roster,
-        roles,
-        day,
-        existing: currentTidbits(state).map((t) => t.text),
-        createdAt,
-        log,
-      });
-      if (!result.ok) {
-        rejected += 1;
-        continue;
-      }
-      if (seen.has(tidbitKey(result.tidbit))) {
-        rejected += 1;
-        continue;
-      }
-      state.tidbits.push(result.tidbit);
-      seen.add(tidbitKey(result.tidbit));
-      seeded += 1;
+  await store.reload();
+  const createdAt = now.toISOString();
+  const seen = new Set(currentTidbits(store.snapshot()).map(tidbitKey));
+  let seeded = 0;
+  let rejected = 0;
+  for (let i = 0; i < cap; i += 1) {
+    const roles = chooseRoles(roster);
+    if (!roles) {
+      rejected += 1;
+      continue;
     }
-    log.info?.(`[gossip] seeded ${seeded} tidbits for ${day}`);
-    return { seeded, rejected, day, skipped: seeded === 0 };
-  });
+    const result = await generateOne({
+      generate,
+      roster,
+      houseRules,
+      roles,
+      day,
+      existing: currentTidbits(store.snapshot()).map((t) => t.text),
+      createdAt,
+      log,
+      sleep,
+      minLength,
+    });
+    if (!result.ok) {
+      rejected += 1;
+      continue;
+    }
+    if (seen.has(tidbitKey(result.tidbit))) {
+      rejected += 1;
+      continue;
+    }
+    await store.mutate((state) => {
+      state.tidbits.push(result.tidbit);
+    });
+    seen.add(tidbitKey(result.tidbit));
+    seeded += 1;
+  }
+  log.info?.(`[gossip] seeded ${seeded} tidbits for ${day}`);
+  return { seeded, rejected, day, skipped: seeded === 0 };
 }
 
-function chainedRoles(roster, previous) {
-  const priorHearers = previous?.hearers || [];
-  const priorHearerIds = new Set(priorHearers.map((p) => p.id));
-  const tellerPool = priorHearers.filter((p) => p?.id && p.id !== previous.teller.id);
-  if (!tellerPool.length) return null;
-  const teller = tellerPool[Math.floor(Math.random() * tellerPool.length)];
-  const candidates = roster.filter((p) => p.id !== previous.teller.id && p.id !== teller.id && !priorHearerIds.has(p.id));
-  const shuffled = candidates.sort(() => Math.random() - 0.5);
-  const count = Math.min(3, shuffled.length);
-  const hearers = shuffled.slice(0, Math.max(1, Math.min(count, shuffled.length)));
-  return { teller, hearers, targets: [] };
-}
 
 export async function refreshGossip({
   store,
@@ -120,9 +135,14 @@ export async function refreshGossip({
   log = console,
   timezone,
   pickRoles,
+  sleep,
+  minLength = 20,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
-  const roster = await adapter.getRosterPersonas();
+  const [roster, houseRules] = await Promise.all([
+    adapter.getRosterPersonas(),
+    adapter.getHouseRules ? adapter.getHouseRules() : '',
+  ]);
   if (!roster.length) {
     throw Object.assign(new Error('cannot refresh gossip without a persona roster'), { status: 503 });
   }
@@ -132,15 +152,19 @@ export async function refreshGossip({
   const tidbits = [];
   const rejected = [];
   const involved = new Set();
-  let previous;
-  let previousTidbit = '';
   const requireComplete = !pickRoles;
   const maxLinks = requireComplete ? Math.max(1, roster.length * 3) : cap;
+  await store.mutate((state) => {
+    state.tidbits = [];
+  });
   for (let i = 0; i < maxLinks && (!requireComplete || involved.size < roster.length); i += 1) {
-    let roles = previous && requireComplete ? chainedRoles(roster, previous) : chooseRoles(roster);
-    if (requireComplete && !previous && roles && !roles.hearers.length) {
-      const firstHearer = roster.find((p) => p.id !== roles.teller.id);
-      roles = { ...roles, hearers: firstHearer ? [firstHearer] : [] };
+    let roles = chooseRoles(roster);
+    const uncovered = roster.filter((persona) => !involved.has(persona.id));
+    if (roles && uncovered.length && roles.teller.id !== uncovered[0].id && !roles.hearers.some((p) => p.id === uncovered[0].id)) {
+      const hearers = roles.hearers.length >= 3
+        ? [...roles.hearers.slice(0, 2), uncovered[0]]
+        : [...roles.hearers, uncovered[0]];
+      roles = { ...roles, hearers };
     }
     if (!roles) {
       rejected.push({ reason: 'no-roles' });
@@ -149,29 +173,29 @@ export async function refreshGossip({
     const result = await generateOne({
       generate,
       roster,
+      houseRules,
       roles,
       day,
       existing: tidbits.map((t) => t.text),
-      previousTidbit,
       createdAt,
       log,
+      sleep,
+      minLength,
     });
     if (!result.ok) {
       rejected.push({ reason: result.reason });
       continue;
     }
     tidbits.push(result.tidbit);
+    await store.mutate((state) => {
+      state.tidbits.push(result.tidbit);
+    });
     involved.add(roles.teller.id);
     roles.hearers.forEach((p) => involved.add(p.id));
-    previous = roles;
-    previousTidbit = result.tidbit.text;
   }
   if (!tidbits.length || (requireComplete && involved.size < roster.length)) {
     throw Object.assign(new Error('LLM produced no complete station-wide hallway chain'), { status: 502, rejected, involved: involved.size, roster: roster.length });
   }
-  await store.mutate((state) => {
-    state.tidbits = tidbits;
-  });
   log.info?.(`[gossip] refreshed board with ${tidbits.length} linked tidbit(s) for ${day}`);
   return { refreshed: tidbits.length, rejected: rejected.length, day, tidbits };
 }

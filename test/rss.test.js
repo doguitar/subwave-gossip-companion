@@ -50,6 +50,20 @@ test('RSS includes known and broadcast-null items, excludes unknown, omits relat
   assert.deepEqual(titles, ['A only', 'B only', 'Broadcast item']);
 });
 
+test('root page lists active tidbits in board order and escapes HTML', async () => {
+  const { store } = await tempStore({
+    tidbits: [
+      tidbit({ text: '<first>' }),
+      tidbit({ text: 'second & more' }),
+    ],
+  });
+  const base = await start(store, stubAdapter());
+  const res = await fetch(`${base}/`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /<ol><li>&lt;first&gt;<\/li><li>second &amp; more<\/li><\/ol>/);
+});
+
 test('missing show is 400; unknown and empty-persona shows are empty 200', async () => {
   const { store } = await tempStore({
     tidbits: [tidbit({ text: 'Secret global item' })],
