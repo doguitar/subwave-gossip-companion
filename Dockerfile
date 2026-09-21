@@ -9,7 +9,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Runtime assets are split from source so prompt/skill edits reuse source-independent layers.
 COPY prompt.md ./prompt.md
 COPY skills ./skills
-COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY --chmod=755 docker-entrypoint.sh ./docker-entrypoint.sh
 COPY src ./src
 
 ENV NODE_ENV=production \
