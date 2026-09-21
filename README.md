@@ -41,6 +41,34 @@ node src/cli.js refresh --base-dir .
 
 The HTTP service listens on `GOSSIP_HOST:GOSSIP_PORT` and exposes `/gossip.rss` and `POST /gossip/refresh`.
 
+### Refreshing gossip
+
+The CLI refresh replaces the current board with a new linked set of tidbits:
+
+```bash
+node src/cli.js refresh --base-dir .
+```
+
+For a deployed instance, call the HTTP endpoint with `POST`. The request body is optional:
+
+```bash
+curl -i -X POST http://127.0.0.1:8080/gossip/refresh
+```
+
+If Docker maps host port `8095` to container port `8080`, use the host port:
+
+```bash
+curl -i -X POST http://127.0.0.1:8095/gossip/refresh
+```
+
+The same endpoint is available at `/refresh`:
+
+```bash
+curl -i -X POST http://127.0.0.1:8095/refresh
+```
+
+The response is JSON containing the generated tidbits and generation status. Refresh requires the configured Subwave credentials and LLM provider settings.
+
 ## Docker
 
 The image keeps application code in `/app` and runtime configuration/state in `/workspace`:
