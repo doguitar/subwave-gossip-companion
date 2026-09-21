@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>subwave-gossip-companion</Name>
+  <Repository>ghcr.io/doguitar/subwave-gossip-companion:latest</Repository>
+  <Registry>https://ghcr.io/</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/doguitar/subwave-gossip-companion</Support>
+  <Project>https://github.com/doguitar/subwave-gossip-companion</Project>
+  <Overview>Persona-aware fictional gossip companion for SUB/WAVE. Persistent state, prompt, and LLM call logs are stored below the workspace path.</Overview>
+  <Category>MediaServer:Audio</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/main/icon.png</Icon>
+  <Config Name="HTTP port" Target="8080" Default="8080" Mode="tcp" Description="Gossip companion HTTP port." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Workspace" Target="/workspace" Default="/mnt/user/appdata/subwave-gossip-companion" Mode="rw" Description="Persistent state, prompt.md, and logs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/subwave-gossip-companion</Config>
+  <Config Name="GOSSIP_BASE_DIR" Target="GOSSIP_BASE_DIR" Default="/workspace" Description="Runtime base directory inside the container." Type="Variable" Display="advanced" Required="true" Mask="false">/workspace</Config>
+  <Config Name="GOSSIP_PROMPT_PATH" Target="GOSSIP_PROMPT_PATH" Default="/workspace/prompt.md" Description="External system prompt path." Type="Variable" Display="advanced" Required="true" Mask="false">/workspace/prompt.md</Config>
+  <Config Name="SUBWAVE_API_URL" Target="SUBWAVE_API_URL" Default="" Description="SUB/WAVE API base URL." Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="SUBWAVE_API_USER" Target="SUBWAVE_API_USER" Default="" Description="SUB/WAVE API username." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="SUBWAVE_API_PASSWORD" Target="SUBWAVE_API_PASSWORD" Default="" Description="SUB/WAVE API password." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="SUBWAVE_API_TOKEN" Target="SUBWAVE_API_TOKEN" Default="" Description="SUB/WAVE API token alternative." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="PROVIDER" Target="PROVIDER" Default="openai" Description="LLM provider: openai, google, or anthropic." Type="Variable" Display="always" Required="true" Mask="false">openai</Config>
+  <Config Name="PROVIDER_KEY" Target="PROVIDER_KEY" Default="" Description="LLM provider API key." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="PROVIDER_MODEL" Target="PROVIDER_MODEL" Default="gpt-4o-mini" Description="LLM model name." Type="Variable" Display="always" Required="true" Mask="false">gpt-4o-mini</Config>
+  <Config Name="OPENAI_BASE_URL" Target="OPENAI_BASE_URL" Default="https://api.openai.com/v1" Description="OpenAI-compatible API base URL." Type="Variable" Display="advanced" Required="true" Mask="false">https://api.openai.com/v1</Config>
+  <Config Name="GOSSIP_REFRESH_COUNT" Target="GOSSIP_REFRESH_COUNT" Default="1" Description="Number of refresh links when using the refresh command." Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
+  <Config Name="GOSSIP_HOST" Target="GOSSIP_HOST" Default="0.0.0.0" Description="HTTP listen address." Type="Variable" Display="advanced" Required="true" Mask="false">0.0.0.0</Config>
+  <Config Name="GOSSIP_PORT" Target="GOSSIP_PORT" Default="8080" Description="HTTP listen port." Type="Variable" Display="advanced" Required="true" Mask="false">8080</Config>
+  <Config Name="GOSSIP_STATE_PATH" Target="GOSSIP_STATE_PATH" Default="data/gossip-state.json" Description="State path relative to the base directory." Type="Variable" Display="advanced" Required="true" Mask="false">data/gossip-state.json</Config>
+  <Config Name="GOSSIP_SEED_CAP" Target="GOSSIP_SEED_CAP" Default="5" Description="Maximum seeded links." Type="Variable" Display="advanced" Required="true" Mask="false">5</Config>
+  <Config Name="GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="http://127.0.0.1:8080" Description="Public base URL used by the station skill." Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8080</Config>
+  <Config Name="GOSSIP_TIMEZONE" Target="GOSSIP_TIMEZONE" Default="America/Los_Angeles" Description="Station timezone." Type="Variable" Display="always" Required="true" Mask="false">America/Los_Angeles</Config>
+  <Config Name="GOSSIP_LLM_FIXTURE" Target="GOSSIP_LLM_FIXTURE" Default="" Description="Optional fixture path relative to the base directory." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="GOSSIP_LLM_CALL_LOG" Target="GOSSIP_LLM_CALL_LOG" Default="logs/llm-calls.jsonl" Description="LLM call log path relative to the base directory." Type="Variable" Display="advanced" Required="true" Mask="false">logs/llm-calls.jsonl</Config>
+</Container>

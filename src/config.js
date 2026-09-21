@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import path from 'node:path';
 
-const DEFAULT_PORT = 8787;
+const DEFAULT_PORT = 8080;
 const DEFAULT_SEED_CAP = 5;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODELS = {

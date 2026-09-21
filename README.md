@@ -50,3 +50,15 @@ The GitHub Actions workflow publishes `ghcr.io/<owner>/subwave-gossip-companion`
 ## Scheduled commands
 
 Use the included `crontab` for daily seeding and recurring spoken-event ingestion, adding `--base-dir` to point at the persistent runtime directory when deployed outside Docker.
+
+## Unraid
+
+Install the container template directly into the Community Applications templates directory:
+
+```bash
+mkdir -p /boot/config/plugins/dockerMan/templates-user
+curl -fsSL https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/main/unraid-template.xml \
+  -o /boot/config/plugins/dockerMan/templates-user/subwave-gossip-companion.xml
+```
+
+Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials, and apply. The default host/container port is `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`.
