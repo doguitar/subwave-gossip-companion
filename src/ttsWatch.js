@@ -28,10 +28,43 @@ export function normalizeTtsCall(raw) {
   };
 }
 
+function normalizedText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function stationLlmLines(debug) {
+  const calls = debug?.llm?.recentCalls || debug?.llm?.recentcalls || [];
+  const lines = [];
+  for (const call of Array.isArray(calls) ? calls : []) {
+    const response = call?.response;
+    for (const line of Array.isArray(response?.lines) ? response.lines : []) {
+      const speaker = String(line?.speaker || '').trim();
+      const text = normalizedText(line?.text);
+      if (speaker && text) lines.push({ speaker, text });
+    }
+  }
+  return lines;
+}
+
+function attachStationSpeakers(calls, debug) {
+  const lines = stationLlmLines(debug);
+  return calls.map((call) => {
+    const text = normalizedText(call.text);
+    const match = lines
+      .filter((line) => line.text === text || text.includes(line.text) || line.text.includes(text))
+      .sort((a, b) => b.text.length - a.text.length)[0];
+    return match
+      ? { ...call, meta: { ...call.meta, personaId: match.speaker } }
+      : call;
+  });
+}
+
 export function recentCallsFromDebug(debug) {
   const tts = debug?.tts || debug?.TTS || {};
   const calls = tts.recentCalls || tts.recentcalls || tts.recent_calls || debug?.recentCalls || [];
-  return Array.isArray(calls) ? calls.map(normalizeTtsCall).filter(Boolean) : [];
+  return Array.isArray(calls)
+    ? attachStationSpeakers(calls.map(normalizeTtsCall).filter(Boolean), debug)
+    : [];
 }
 export function findStationGossipTts(source, since) {
   const sinceMs = since instanceof Date ? since.getTime() : new Date(since).getTime();
