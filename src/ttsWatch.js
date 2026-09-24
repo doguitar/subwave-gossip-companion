@@ -65,13 +65,20 @@ export function relatedStationLlmLines(debug, spoken) {
   if (!target) return [];
   const calls = debug?.llm?.recentCalls || debug?.llm?.recentcalls || [];
   for (const call of Array.isArray(calls) ? calls : []) {
-    const lines = Array.isArray(call?.response?.lines) ? call.response.lines : [];
+    const lines = Array.isArray(call?.response?.lines)
+      ? call.response.lines
+      : call?.response?.segment?.text
+        ? [{ speaker: spoken?.meta?.personaId || '', text: call.response.segment.text }]
+        : [];
     if (lines.some((line) => {
       const text = normalizedText(line?.text);
       return text === target || target.includes(text) || text.includes(target);
     })) {
       return lines
-        .map((line) => ({ speaker: String(line?.speaker || '').trim(), text: normalizedText(line?.text) }))
+        .map((line) => ({
+          speaker: String(line?.speaker || spoken?.meta?.personaId || '').trim(),
+          text: normalizedText(line?.text),
+        }))
         .filter((line) => line.speaker && line.text);
     }
   }
