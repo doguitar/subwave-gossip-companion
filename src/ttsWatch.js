@@ -44,10 +44,19 @@ export function findStationGossipTts(source, since) {
   return hits;
 }
 
-export async function waitForStationGossipTts({ adapter, since, timeoutMs = 5 * 60 * 1000, intervalMs = 3000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console } = {}) {
+export async function waitForStationGossipTts({
+  adapter,
+  since,
+  timeoutMs = 5 * 60 * 1000,
+  intervalMs = 3000,
+  settleMs = 5000,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  log = console,
+} = {}) {
   const deadline = Date.now() + timeoutMs;
   const found = new Map();
-  while (Date.now() <= deadline) {
+  let settleDeadline = null;
+  while (Date.now() <= (settleDeadline || deadline)) {
     try {
       let hits = [];
       if (adapter.getDebug) {
@@ -58,11 +67,17 @@ export async function waitForStationGossipTts({ adapter, since, timeoutMs = 5 * 
         }
       }
       if (!hits.length && adapter.getSession) hits = findStationGossipTts(await adapter.getSession(), since);
+      const before = found.size;
       for (const spoken of hits) found.set(ttsSourceId(spoken), spoken);
+      if (found.size > before && !settleDeadline) {
+        settleDeadline = Date.now() + settleMs;
+        log.info?.(`[gossip] first station-gossip line detected; collecting follow-up lines for ${settleMs}ms`);
+      }
     } catch (err) {
       log.warn?.(`[gossip] tts poll failed: ${err.message}`);
     }
-    const wait = Math.min(intervalMs, Math.max(0, deadline - Date.now()));
+    const activeDeadline = settleDeadline || deadline;
+    const wait = Math.min(intervalMs, Math.max(0, activeDeadline - Date.now()));
     if (wait <= 0) break;
     await sleep(wait);
   }
