@@ -48,6 +48,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const watcher = createFollowupWatcher({ store, adapter, config, log });
     const server = createServer({ store, adapter, config, log, watcher });
     await listen(server, config, log);
+    const shutdown = (signal) => {
+      log.info(`[gossip] received ${signal}; shutting down`);
+      server.close(() => process.exit(0));
+    };
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    process.once('SIGINT', () => shutdown('SIGINT'));
     return { server, store, adapter, config };
   }
 
