@@ -145,10 +145,7 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
   async function run({ show, since }) {
     const timeoutMs = config.ttsTimeoutMs || 5 * 60 * 1000;
     const intervalMs = config.ttsPollMs || 3000;
-    log.info?.(`[gossip] watching station-gossip and station-gossip-cohosted TTS after skill fetch show=${show}`);
-    const spokenLines = (await waitForStationGossipTts({ adapter, since, timeoutMs, intervalMs, log })) || [];
-
-    const [roster, sessionShowPersonas, session] = await Promise.all([
+    const [roster, sessionShowPersonas] = await Promise.all([
       adapter.getRosterPersonas(),
       (async () => {
         try {
@@ -164,14 +161,25 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
     const requestedShowPersonas = await adapter.getShowPersonas(show);
     const showPersonas = sessionShowPersonas.personas.length ? sessionShowPersonas.personas : requestedShowPersonas;
     let added = 0;
-    for (const spoken of spokenLines) {
-      const fullSpoken = await recoverFullSpokenText(spoken, config.llmCallLogPath, log);
-      const result = await appendGeneratedGossip({
-        store, roster, showPersonas, spoken: fullSpoken, session: sessionShowPersonas.sess, log,
-      });
-      added += result.added || 0;
-    }
-    return { added, lines: spokenLines.length };
+    let lines = 0;
+    const onLines = async (spokenLines) => {
+      for (const spoken of spokenLines) {
+        const fullSpoken = await recoverFullSpokenText(spoken, config.llmCallLogPath, log);
+        const result = await appendGeneratedGossip({
+          store,
+          roster,
+          showPersonas,
+          spoken: fullSpoken,
+          session: sessionShowPersonas.sess,
+          log,
+        });
+        added += result.added || 0;
+        lines += 1;
+      }
+    };
+    log.info?.(`[gossip] watching station-gossip and station-gossip-cohosted TTS after skill fetch show=${show}`);
+    await waitForStationGossipTts({ adapter, since, timeoutMs, intervalMs, onLines, log });
+    return { added, lines, timedOut: lines === 0 };
   }
 
   return {

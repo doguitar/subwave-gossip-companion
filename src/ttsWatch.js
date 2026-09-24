@@ -112,6 +112,7 @@ export async function waitForStationGossipTts({
   timeoutMs = 5 * 60 * 1000,
   intervalMs = 3000,
   settleMs = 60000,
+  onLines,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   log = console,
 } = {}) {
@@ -146,9 +147,15 @@ export async function waitForStationGossipTts({
           correlated.push(spoken);
         }
       }
-      const before = found.size;
-      for (const spoken of correlated) found.set(ttsSourceId(spoken), spoken);
-      if (found.size > before && !settleDeadline) {
+      const newLines = [];
+      for (const spoken of correlated) {
+        const key = ttsSourceId(spoken);
+        if (found.has(key)) continue;
+        found.set(key, spoken);
+        newLines.push(spoken);
+      }
+      if (newLines.length && onLines) await onLines(newLines);
+      if (newLines.length && !settleDeadline) {
         settleDeadline = Date.now() + settleMs;
         log.info?.(`[gossip] first station-gossip line detected; collecting follow-up lines for ${settleMs}ms`);
       }
