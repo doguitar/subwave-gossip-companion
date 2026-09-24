@@ -1,7 +1,8 @@
 export function ttsSourceId(message) {
   const airedAt = message?.meta?.airedAt || message?.t || '';
   const kind = message?.kind || 'station-gossip';
-  return `tts:${kind}:${airedAt}`;
+  const text = normalizedText(message?.text);
+  return `tts:${kind}:${airedAt}:${text}`;
 }
 
 export function normalizeTtsCall(raw) {
@@ -47,6 +48,7 @@ function stationLlmLines(debug) {
 }
 
 function attachStationSpeakers(calls, debug) {
+
   const lines = stationLlmLines(debug);
   return calls.map((call) => {
     const text = normalizedText(call.text);
@@ -57,6 +59,23 @@ function attachStationSpeakers(calls, debug) {
       ? { ...call, meta: { ...call.meta, personaId: match.speaker } }
       : call;
   });
+}
+export function relatedStationLlmLines(debug, spoken) {
+  const target = normalizedText(spoken?.text);
+  if (!target) return [];
+  const calls = debug?.llm?.recentCalls || debug?.llm?.recentcalls || [];
+  for (const call of Array.isArray(calls) ? calls : []) {
+    const lines = Array.isArray(call?.response?.lines) ? call.response.lines : [];
+    if (lines.some((line) => {
+      const text = normalizedText(line?.text);
+      return text === target || target.includes(text) || text.includes(target);
+    })) {
+      return lines
+        .map((line) => ({ speaker: String(line?.speaker || '').trim(), text: normalizedText(line?.text) }))
+        .filter((line) => line.speaker && line.text);
+    }
+  }
+  return [];
 }
 
 export function recentCallsFromDebug(debug) {
@@ -102,16 +121,33 @@ export async function waitForStationGossipTts({
   while (Date.now() <= (settleDeadline || deadline)) {
     try {
       let hits = [];
+      let debug = null;
       if (adapter.getDebug) {
         try {
-          hits = findStationGossipTts(await adapter.getDebug(), since);
+          debug = await adapter.getDebug();
+          hits = findStationGossipTts(debug, since);
         } catch (err) {
           log.warn?.(`[gossip] /debug tts poll failed: ${err.message}`);
         }
       }
       if (!hits.length && adapter.getSession) hits = findStationGossipTts(await adapter.getSession(), since);
+      const correlated = [];
+      for (const spoken of hits) {
+        const lines = debug ? relatedStationLlmLines(debug, spoken) : [];
+        if (lines.length) {
+          for (const line of lines) {
+            correlated.push({
+              ...spoken,
+              text: line.text,
+              meta: { ...spoken.meta, personaId: line.speaker },
+            });
+          }
+        } else {
+          correlated.push(spoken);
+        }
+      }
       const before = found.size;
-      for (const spoken of hits) found.set(ttsSourceId(spoken), spoken);
+      for (const spoken of correlated) found.set(ttsSourceId(spoken), spoken);
       if (found.size > before && !settleDeadline) {
         settleDeadline = Date.now() + settleMs;
         log.info?.(`[gossip] first station-gossip line detected; collecting follow-up lines for ${settleMs}ms`);
