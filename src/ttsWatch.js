@@ -81,7 +81,9 @@ export function relatedStationLlmLines(debug, spoken) {
       ? response.lines
       : response?.segment?.text
         ? [{ speaker: spoken?.meta?.personaId || '', text: response.segment.text }]
-        : [];
+        : response?.text
+          ? [{ speaker: spoken?.meta?.personaId || '', text: response.text }]
+          : [];
     if (lines.some((line) => {
       const text = normalizedText(line?.text);
       return text === target || target.includes(text) || text.includes(target);

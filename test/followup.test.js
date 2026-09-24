@@ -76,6 +76,27 @@ test('solo TTS expands the matching station LLM segment', async () => {
   assert.equal(lines[0].text, fullText);
   assert.equal(lines[0].meta.personaName, 'Reed Silver');
 });
+test('solo TTS expands a station LLM response text', async () => {
+  const fullText = 'A complete solo line that is longer than the truncated TTS record.';
+  const result = await waitForStationGossipTts({
+    adapter: {
+      async getDebug() {
+        return {
+          tts: { recentCalls: [{ kind: 'station-gossip', persona: 'Reed Silver', text: fullText.slice(0, 30), t: '2026-09-24T02:20:00.000Z' }] },
+          llm: { recentCalls: [{ response: JSON.stringify({ air: true, text: fullText }) }] },
+        };
+      },
+    },
+    since: new Date('2026-09-24T02:19:00.000Z'),
+    timeoutMs: 20,
+    settleMs: 1,
+    intervalMs: 1,
+    sleep: async () => {},
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result[0].text, fullText);
+});
+
 
 
 
