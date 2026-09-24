@@ -14,16 +14,7 @@ export function normalizeTtsCall(raw) {
     ? personaRaw.trim()
     : String(personaRaw?.name || personaRaw?.personaName || '').trim();
   const airedAt = raw.airedAt || raw.at || raw.t || raw.ts || raw.createdAt || raw.when || '';
-  return {
-    kind: kind || 'station-gossip',
-    text,
-    t: airedAt || undefined,
-    meta: {
-      airedAt: airedAt || undefined,
-      personaName: personaName || undefined,
-    },
-    raw,
-  };
+  return { kind: kind || 'station-gossip', text, t: airedAt || undefined, meta: { airedAt: airedAt || undefined, personaName: personaName || undefined }, raw };
 }
 
 export function recentCallsFromDebug(debug) {
@@ -38,56 +29,36 @@ export function findStationGossipTts(source, since) {
     ? source.map(normalizeTtsCall).filter(Boolean)
     : recentCallsFromDebug(source).length
       ? recentCallsFromDebug(source)
-      : (source?.messages || source?.events || []).map((msg) => ({
-        kind: msg.kind,
-        text: msg.text,
-        t: msg.t,
-        meta: msg.meta || {},
-      }));
+      : (source?.messages || source?.events || []).map((msg) => ({ kind: msg.kind, text: msg.text, t: msg.t, meta: msg.meta || {} }));
   const hits = [];
   for (const msg of calls) {
-    if (String(msg.kind || '') !== 'station-gossip') continue;
+    if (!/^station-gossip(?:-cohosted)?$/i.test(String(msg.kind || ''))) continue;
     const when = new Date(msg.meta?.airedAt || msg.t || 0);
     if (Number.isNaN(when.getTime())) {
       if (sinceMs && !msg.meta?.airedAt && !msg.t) hits.push(msg);
       continue;
     }
-    if (when.getTime() < sinceMs) continue;
-    if (!String(msg.text || '').trim()) continue;
+    if (when.getTime() < sinceMs || !String(msg.text || '').trim()) continue;
     hits.push(msg);
   }
   return hits;
 }
 
-export async function waitForStationGossipTts({
-  adapter,
-  since,
-  timeoutMs = 5 * 60 * 1000,
-  intervalMs = 3000,
-  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
-  log = console,
-} = {}) {
+export async function waitForStationGossipTts({ adapter, since, timeoutMs = 5 * 60 * 1000, intervalMs = 3000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console } = {}) {
   const deadline = Date.now() + timeoutMs;
+  const found = new Map();
   while (Date.now() <= deadline) {
     try {
       let hits = [];
       if (adapter.getDebug) {
         try {
-          const debug = await adapter.getDebug();
-          hits = findStationGossipTts(debug, since);
+          hits = findStationGossipTts(await adapter.getDebug(), since);
         } catch (err) {
           log.warn?.(`[gossip] /debug tts poll failed: ${err.message}`);
         }
       }
-      if (!hits.length && adapter.getSession) {
-        const session = await adapter.getSession();
-        hits = findStationGossipTts(session, since);
-      }
-      if (hits.length) {
-        const spoken = hits[hits.length - 1];
-        log.info?.(`[gossip] tts station-gossip at ${spoken.meta?.airedAt || spoken.t} persona=${spoken.meta?.personaName || '?'}`);
-        return spoken;
-      }
+      if (!hits.length && adapter.getSession) hits = findStationGossipTts(await adapter.getSession(), since);
+      for (const spoken of hits) found.set(ttsSourceId(spoken), spoken);
     } catch (err) {
       log.warn?.(`[gossip] tts poll failed: ${err.message}`);
     }
@@ -95,6 +66,9 @@ export async function waitForStationGossipTts({
     if (wait <= 0) break;
     await sleep(wait);
   }
-  log.warn?.('[gossip] tts station-gossip timed out');
-  return null;
+  const result = [...found.values()].sort((a, b) => new Date(a.meta?.airedAt || a.t || 0) - new Date(b.meta?.airedAt || b.t || 0));
+  log.info?.(`[gossip] tts watcher collected ${result.length} station-gossip line(s)`);
+  if (!result.length) return null;
+  if (result.length === 1) Object.assign(result, result[0]);
+  return result;
 }

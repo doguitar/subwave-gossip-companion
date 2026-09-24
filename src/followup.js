@@ -1,3 +1,34 @@
+import { readFile } from 'node:fs/promises';
+
+function responseStrings(value, out = []) {
+  if (typeof value === 'string') out.push(value.replace(/\s+/g, ' ').trim());
+  else if (Array.isArray(value)) value.forEach((item) => responseStrings(item, out));
+  else if (value && typeof value === 'object') Object.values(value).forEach((item) => responseStrings(item, out));
+  return out;
+}
+
+async function recoverFullSpokenText(spoken, logPath, log = console) {
+  const short = String(spoken?.text || '').replace(/\s+/g, ' ').trim();
+  if (!short || !logPath) return spoken;
+  try {
+    const lines = (await readFile(logPath, 'utf8')).trim().split(/\r?\n/).reverse();
+    for (const line of lines) {
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      const candidates = responseStrings(entry.response).filter((text) => text.length > 20);
+      const full = candidates
+        .filter((text) => short.includes(text) || text.includes(short))
+        .sort((a, b) => b.length - a.length)[0];
+      if (full && full.length > short.length) {
+        log.info?.('[gossip] recovered full spoken text from LLM call log');
+        return { ...spoken, text: full };
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') log.warn?.(`[gossip] LLM call-log recovery failed: ${err.message}`);
+  }
+  return spoken;
+}
 import { currentTidbits, tidbitKey } from './store.js';
 import { waitForStationGossipTts } from './ttsWatch.js';
 
@@ -104,15 +135,8 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
   async function run({ show, since }) {
     const timeoutMs = config.ttsTimeoutMs || 5 * 60 * 1000;
     const intervalMs = config.ttsPollMs || 3000;
-    log.info?.(`[gossip] waiting up to ${timeoutMs}ms for station-gossip TTS after skill fetch show=${show}`);
-    const spoken = await waitForStationGossipTts({
-      adapter,
-      since,
-      timeoutMs,
-      intervalMs,
-      log,
-    });
-    if (!spoken) return { added: 0, timedOut: true };
+    log.info?.(`[gossip] watching station-gossip and station-gossip-cohosted TTS after skill fetch show=${show}`);
+    const spokenLines = (await waitForStationGossipTts({ adapter, since, timeoutMs, intervalMs, log })) || [];
 
     const [roster, sessionShowPersonas, session] = await Promise.all([
       adapter.getRosterPersonas(),
@@ -128,17 +152,16 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
       })(),
     ]);
     const requestedShowPersonas = await adapter.getShowPersonas(show);
-    const showPersonas = sessionShowPersonas.personas.length
-      ? sessionShowPersonas.personas
-      : requestedShowPersonas;
-    return appendGeneratedGossip({
-      store,
-      roster,
-      showPersonas,
-      spoken,
-      session: sessionShowPersonas.sess,
-      log,
-    });
+    const showPersonas = sessionShowPersonas.personas.length ? sessionShowPersonas.personas : requestedShowPersonas;
+    let added = 0;
+    for (const spoken of spokenLines) {
+      const fullSpoken = await recoverFullSpokenText(spoken, config.llmCallLogPath, log);
+      const result = await appendGeneratedGossip({
+        store, roster, showPersonas, spoken: fullSpoken, session: sessionShowPersonas.sess, log,
+      });
+      added += result.added || 0;
+    }
+    return { added, lines: spokenLines.length };
   }
 
   return {
