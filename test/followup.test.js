@@ -41,6 +41,42 @@ test('cohosted TTS expands all speakers from the matching station LLM call', asy
     ['p_b', 'Second cohost line'],
   ]);
 });
+test('solo TTS expands the matching station LLM segment', async () => {
+  const fullText = 'I have been reflecting further on Werner’s account of the laundry room and the machine that eats all our socks.';
+  const lines = await waitForStationGossipTts({
+    adapter: {
+      async getDebug() {
+        return {
+          tts: {
+            recentCalls: [{
+              kind: 'station-gossip',
+              persona: 'Reed Silver',
+              text: fullText.slice(0, 60),
+              t: '2026-09-24T02:10:00.000Z',
+            }],
+          },
+          llm: {
+            recentCalls: [{
+              response: {
+                segment: { kind: 'station-gossip', text: fullText, sfx: null },
+              },
+            }],
+          },
+        };
+      },
+    },
+    since: new Date('2026-09-24T02:09:00.000Z'),
+    timeoutMs: 50,
+    settleMs: 1,
+    intervalMs: 1,
+    sleep: async () => {},
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].text, fullText);
+  assert.equal(lines[0].meta.personaName, 'Reed Silver');
+});
+
 
 
 const spoken = {

@@ -79,7 +79,7 @@ export function relatedStationLlmLines(debug, spoken) {
           speaker: String(line?.speaker || spoken?.meta?.personaId || '').trim(),
           text: normalizedText(line?.text),
         }))
-        .filter((line) => line.speaker && line.text);
+        .filter((line) => line.text);
     }
   }
   return [];
@@ -147,7 +147,7 @@ export async function waitForStationGossipTts({
             correlated.push({
               ...spoken,
               text: line.text,
-              meta: { ...spoken.meta, personaId: line.speaker },
+              meta: { ...spoken.meta, personaId: line.speaker || spoken.meta?.personaId },
             });
           }
         } else {
