@@ -111,7 +111,7 @@ export async function waitForStationGossipTts({
   since,
   timeoutMs = 5 * 60 * 1000,
   intervalMs = 3000,
-  settleMs = 5000,
+  settleMs = 60000,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   log = console,
 } = {}) {

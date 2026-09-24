@@ -3,6 +3,45 @@ import { test } from 'node:test';
 import { waitForStationGossipTts, findStationGossipTts } from '../src/ttsWatch.js';
 import { appendGeneratedGossip, formatOnAirTidbit } from '../src/followup.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore } from './helpers.js';
+test('cohosted TTS expands all speakers from the matching station LLM call', async () => {
+  const first = {
+    kind: 'station-gossip-cohosted',
+    text: 'First cohost line',
+    t: '2026-09-24T02:00:00.000Z',
+    meta: { airedAt: '2026-09-24T02:00:00.000Z' },
+  };
+  const adapter = {
+    async getDebug() {
+      return {
+        tts: { recentCalls: [first] },
+        llm: {
+          recentCalls: [{
+            response: {
+              lines: [
+                { speaker: 'p_a', text: 'First cohost line' },
+                { speaker: 'p_b', text: 'Second cohost line' },
+              ],
+            },
+          }],
+        },
+      };
+    },
+  };
+  const lines = await waitForStationGossipTts({
+    adapter,
+    since: new Date('2026-09-24T01:59:00.000Z'),
+    timeoutMs: 50,
+    settleMs: 1,
+    intervalMs: 1,
+    sleep: async () => {},
+    log: { info() {}, warn() {} },
+  });
+  assert.deepEqual(lines.map((line) => [line.meta.personaId, line.text]), [
+    ['p_a', 'First cohost line'],
+    ['p_b', 'Second cohost line'],
+  ]);
+});
+
 
 const spoken = {
   kind: 'station-gossip',
@@ -46,6 +85,7 @@ test('waitForStationGossipTts returns the post-skill TTS line and times out othe
     since,
     timeoutMs: 200,
     intervalMs: 1,
+    settleMs: 1,
     sleep: async () => {},
     log: { info() {}, warn() {} },
   });
