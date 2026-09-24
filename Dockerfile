@@ -6,11 +6,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Runtime assets are split from source so prompt/skill edits reuse source-independent layers.
-COPY prompt.md ./prompt.md
-COPY skills ./skills
-COPY --chmod=755 docker-entrypoint.sh ./docker-entrypoint.sh
-COPY src ./src
+# All runtime code, prompts, and skills share one cacheable application layer.
+COPY . .
 
 ENV NODE_ENV=production \
     GOSSIP_BASE_DIR=/workspace \
@@ -21,6 +18,6 @@ ENV NODE_ENV=production \
 VOLUME ["/workspace"]
 EXPOSE 8080
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]
 CMD ["node", "src/cli.js", "serve", "--base-dir", "/workspace"]
 
