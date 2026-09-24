@@ -59,22 +59,32 @@ export function formatOnAirTidbit(spoken, roster = [], showPersonas = [], sessio
   const rosterByName = new Map((roster || []).map((p) => [String(p.name || '').toLowerCase(), p]));
   const fromSession = speakerFromSession(session, spoken);
   const showHost = showPersonas?.[0];
+  const cohosted = /^station-gossip-cohosted$/i.test(String(spoken?.kind || ''));
 
   let tellerPersonaId = typeof spoken?.meta?.personaId === 'string' ? spoken.meta.personaId.trim() : '';
   let broadcaster = typeof spoken?.meta?.personaName === 'string' ? spoken.meta.personaName.trim() : '';
-
-  if (!tellerPersonaId && fromSession?.id) tellerPersonaId = fromSession.id;
-  if (!broadcaster && fromSession?.name) broadcaster = fromSession.name;
+  const explicitSpeaker = Boolean(tellerPersonaId || broadcaster);
 
   if (tellerPersonaId && rosterById.has(tellerPersonaId)) {
     broadcaster = rosterById.get(tellerPersonaId).name || broadcaster;
   } else if (broadcaster && rosterByName.has(broadcaster.toLowerCase())) {
     tellerPersonaId = tellerPersonaId || rosterByName.get(broadcaster.toLowerCase()).id;
     broadcaster = rosterByName.get(broadcaster.toLowerCase()).name;
-  } else if (showHost) {
-    tellerPersonaId = tellerPersonaId || showHost.id;
-    broadcaster = broadcaster || showHost.name;
+  } else if (!cohosted) {
+    if (!tellerPersonaId && fromSession?.id) tellerPersonaId = fromSession.id;
+    if (!broadcaster && fromSession?.name) broadcaster = fromSession.name;
+    if (tellerPersonaId && rosterById.has(tellerPersonaId)) {
+      broadcaster = rosterById.get(tellerPersonaId).name || broadcaster;
+    } else if (broadcaster && rosterByName.has(broadcaster.toLowerCase())) {
+      tellerPersonaId = tellerPersonaId || rosterByName.get(broadcaster.toLowerCase()).id;
+      broadcaster = rosterByName.get(broadcaster.toLowerCase()).name;
+    } else if (showHost) {
+      tellerPersonaId = tellerPersonaId || showHost.id;
+      broadcaster = broadcaster || showHost.name;
+    }
   }
+
+  if (cohosted && !explicitSpeaker) return null;
 
   if (!tellerPersonaId || !broadcaster) return null;
 

@@ -9,12 +9,23 @@ export function normalizeTtsCall(raw) {
   const kind = String(raw.kind || raw.skill || raw.skillName || '').trim();
   const text = String(raw.text || raw.spoken || raw.spokenText || raw.content || '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
-  const personaRaw = raw.persona ?? raw.personaName ?? raw.voice ?? raw.speaker;
+  const personaRaw = raw.persona ?? raw.personaName ?? raw.voice ?? raw.speaker ?? raw.meta?.persona;
   const personaName = typeof personaRaw === 'string'
     ? personaRaw.trim()
     : String(personaRaw?.name || personaRaw?.personaName || '').trim();
+  const personaId = String(raw.personaId || raw.meta?.personaId || '').trim();
   const airedAt = raw.airedAt || raw.at || raw.t || raw.ts || raw.createdAt || raw.when || '';
-  return { kind: kind || 'station-gossip', text, t: airedAt || undefined, meta: { airedAt: airedAt || undefined, personaName: personaName || undefined }, raw };
+  return {
+    kind: kind || 'station-gossip',
+    text,
+    t: airedAt || undefined,
+    meta: {
+      airedAt: airedAt || undefined,
+      personaId: personaId || undefined,
+      personaName: personaName || undefined,
+    },
+    raw,
+  };
 }
 
 export function recentCallsFromDebug(debug) {
@@ -22,7 +33,6 @@ export function recentCallsFromDebug(debug) {
   const calls = tts.recentCalls || tts.recentcalls || tts.recent_calls || debug?.recentCalls || [];
   return Array.isArray(calls) ? calls.map(normalizeTtsCall).filter(Boolean) : [];
 }
-
 export function findStationGossipTts(source, since) {
   const sinceMs = since instanceof Date ? since.getTime() : new Date(since).getTime();
   const calls = Array.isArray(source)
