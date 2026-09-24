@@ -32,12 +32,23 @@ export function normalizeTtsCall(raw) {
 function normalizedText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
+function parseStationResponse(value) {
+  if (value && typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const start = value.indexOf('{');
+    const end = value.lastIndexOf('}');
+    return start >= 0 && end > start ? JSON.parse(value.slice(start, end + 1)) : null;
+  } catch {
+    return null;
+  }
+}
 
 function stationLlmLines(debug) {
   const calls = debug?.llm?.recentCalls || debug?.llm?.recentcalls || [];
   const lines = [];
   for (const call of Array.isArray(calls) ? calls : []) {
-    const response = call?.response;
+    const response = parseStationResponse(call?.response);
     for (const line of Array.isArray(response?.lines) ? response.lines : []) {
       const speaker = String(line?.speaker || '').trim();
       const text = normalizedText(line?.text);
@@ -65,10 +76,11 @@ export function relatedStationLlmLines(debug, spoken) {
   if (!target) return [];
   const calls = debug?.llm?.recentCalls || debug?.llm?.recentcalls || [];
   for (const call of Array.isArray(calls) ? calls : []) {
-    const lines = Array.isArray(call?.response?.lines)
-      ? call.response.lines
-      : call?.response?.segment?.text
-        ? [{ speaker: spoken?.meta?.personaId || '', text: call.response.segment.text }]
+    const response = parseStationResponse(call?.response);
+    const lines = Array.isArray(response?.lines)
+      ? response.lines
+      : response?.segment?.text
+        ? [{ speaker: spoken?.meta?.personaId || '', text: response.segment.text }]
         : [];
     if (lines.some((line) => {
       const text = normalizedText(line?.text);
