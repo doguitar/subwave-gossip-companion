@@ -64,6 +64,7 @@ export function createServer({ store, adapter, config, log = console, watcher, g
           adapter,
           generate: generateFn,
           cap: Number.isInteger(cap) && cap > 0 ? Math.min(cap, 10) : 1,
+          historyGenerations: config.gossipHistoryGenerations,
           timezone: config.timezone,
           log,
           pickRoles,
