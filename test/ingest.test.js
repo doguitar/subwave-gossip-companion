@@ -23,7 +23,8 @@ test('ingest sets hearerPersonaIds to null and is idempotent', async () => {
   assert.equal(second.ingested, 0);
 
   const state = await read();
-  assert.deepEqual(Object.keys(state), ['tidbits']);
+  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory']);
+  assert.deepEqual(state.generatedGossipHistory, []);
   assert.equal(state.tidbits[0].hearerPersonaIds, null);
 
   const server = createServer({

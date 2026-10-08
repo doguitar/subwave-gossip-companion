@@ -3,7 +3,19 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export function emptyState() {
-  return { tidbits: [] };
+  return { tidbits: [], generatedGossipHistory: [] };
+}
+
+function normalizeHistoryBatch(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((text) => typeof text === 'string' && text.length > 0);
+}
+
+function normalizeGeneratedGossipHistory(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(normalizeHistoryBatch)
+    .filter((batch) => batch.length > 0);
 }
 
 export function normalizeTidbit(raw) {
@@ -29,7 +41,8 @@ export function normalizeTidbit(raw) {
 
 export function normalizeState(parsed) {
   const tidbits = Array.isArray(parsed?.tidbits) ? parsed.tidbits.map(normalizeTidbit) : [];
-  return { tidbits };
+  const generatedGossipHistory = normalizeGeneratedGossipHistory(parsed?.generatedGossipHistory);
+  return { tidbits, generatedGossipHistory };
 }
 
 function clone(value) {
@@ -100,6 +113,24 @@ export class GossipStore {
 
 export function currentTidbits(state) {
   return Array.isArray(state?.tidbits) ? state.tidbits : [];
+}
+
+export function generatedGossipHistory(state) {
+  return normalizeGeneratedGossipHistory(state?.generatedGossipHistory);
+}
+
+export function appendGeneratedGossipHistory(state, generatedTexts, limit) {
+  if (limit === 0) {
+    state.generatedGossipHistory = [];
+    return state.generatedGossipHistory;
+  }
+  const texts = normalizeHistoryBatch(generatedTexts);
+  const history = generatedGossipHistory(state);
+  if (texts.length) history.push(texts);
+  state.generatedGossipHistory = Number.isInteger(limit) && limit > 0
+    ? history.slice(-limit)
+    : history;
+  return state.generatedGossipHistory;
 }
 
 export function tidbitKey(t) {

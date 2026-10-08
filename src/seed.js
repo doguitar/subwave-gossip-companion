@@ -1,6 +1,11 @@
 import { rumorFromPayload } from './llm.js';
 import { hearerIdsForRoles, pickGossipRoles, wrapRumor } from './roles.js';
-import { currentTidbits, tidbitKey } from './store.js';
+import {
+  appendGeneratedGossipHistory,
+  currentTidbits,
+  generatedGossipHistory,
+  tidbitKey,
+} from './store.js';
 import { validateRumor } from './validate.js';
 
 export function stationDay(now = new Date(), timeZone = 'UTC') {
@@ -69,6 +74,7 @@ export async function seedGossip({
   adapter,
   generate,
   cap,
+  historyGenerations,
   now = new Date(),
   log = console,
   timezone,
@@ -86,6 +92,10 @@ export async function seedGossip({
 
   await store.reload();
   const createdAt = now.toISOString();
+  const retainedHistory = historyGenerations > 0
+    ? generatedGossipHistory(store.snapshot()).flat()
+    : [];
+  const sessionTexts = [];
   const seen = new Set(currentTidbits(store.snapshot()).map(tidbitKey));
   let seeded = 0;
   let rejected = 0;
@@ -101,7 +111,7 @@ export async function seedGossip({
       houseRules,
       roles,
       day,
-      existing: currentTidbits(store.snapshot()).map((t) => t.text),
+      existing: [...retainedHistory, ...sessionTexts],
       createdAt,
       log,
       sleep,
@@ -119,7 +129,13 @@ export async function seedGossip({
       state.tidbits.push(result.tidbit);
     });
     seen.add(tidbitKey(result.tidbit));
+    sessionTexts.push(result.tidbit.text);
     seeded += 1;
+  }
+  if (sessionTexts.length || historyGenerations === 0) {
+    await store.mutate((state) => {
+      appendGeneratedGossipHistory(state, sessionTexts, historyGenerations);
+    });
   }
   log.info?.(`[gossip] seeded ${seeded} tidbits for ${day}`);
   return { seeded, rejected, day, skipped: seeded === 0 };
@@ -131,6 +147,7 @@ export async function refreshGossip({
   adapter,
   generate,
   cap = 1,
+  historyGenerations,
   now = new Date(),
   log = console,
   timezone,
@@ -154,6 +171,10 @@ export async function refreshGossip({
   const involved = new Set();
   const requireComplete = !pickRoles;
   const maxLinks = requireComplete ? Math.max(1, roster.length * 3) : cap;
+  await store.reload();
+  const retainedHistory = historyGenerations > 0
+    ? generatedGossipHistory(store.snapshot()).flat()
+    : [];
   await store.mutate((state) => {
     state.tidbits = [];
   });
@@ -176,7 +197,7 @@ export async function refreshGossip({
       houseRules,
       roles,
       day,
-      existing: tidbits.map((t) => t.text),
+      existing: [...retainedHistory, ...tidbits.map((t) => t.text)],
       createdAt,
       log,
       sleep,
@@ -196,6 +217,9 @@ export async function refreshGossip({
   if (!tidbits.length || (requireComplete && involved.size < roster.length)) {
     throw Object.assign(new Error('LLM produced no complete station-wide hallway chain'), { status: 502, rejected, involved: involved.size, roster: roster.length });
   }
+  await store.mutate((state) => {
+    appendGeneratedGossipHistory(state, tidbits.map((t) => t.text), historyGenerations);
+  });
   log.info?.(`[gossip] refreshed board with ${tidbits.length} linked tidbit(s) for ${day}`);
   return { refreshed: tidbits.length, rejected: rejected.length, day, tidbits };
 }

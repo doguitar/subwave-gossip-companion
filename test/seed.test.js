@@ -29,6 +29,7 @@ test('seed uses pre-picked roles and skips duplicate rumor wraps', async () => {
     generate,
     pickRoles: () => hallway,
     cap: 2,
+    historyGenerations: 7,
     now: new Date('2026-09-19T08:00:00.000Z'),
     timezone: 'UTC',
     log: { info() {}, warn() {} },
@@ -57,6 +58,7 @@ test('refresh replaces the board; zero hearers become said-on-air', async () => 
       return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
     },
     cap: 1,
+    historyGenerations: 7,
     now: new Date('2026-09-19T18:00:00.000Z'),
     timezone: 'UTC',
     log: { info() {}, warn() {} },
@@ -84,6 +86,7 @@ test('refresh retries rejected model output before failing', async () => {
       return { rumor: attempts === 1 ? 'string' : 'unconfirmed the booth kettle whistled twice' };
     },
     cap: 1,
+    historyGenerations: 7,
     timezone: 'UTC',
     log: { info() {}, warn() {} },
   });
@@ -99,6 +102,7 @@ test('seed retries rate limits indefinitely and preserves earlier tidbits', asyn
     adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B] }),
     pickRoles: () => onAir,
     cap: 2,
+    historyGenerations: 7,
     timezone: 'UTC',
     sleep: async () => {},
     generate: async () => {
@@ -134,9 +138,96 @@ test('default refresh chains until every persona participates', async () => {
       return { rumor: `unconfirmed station kettle remembers ${targets || 'the cart'} tonight` };
     },
     cap: 1,
+    historyGenerations: 7,
     timezone: 'UTC',
     log: { info() {}, warn() {} },
   });
   assert.ok(result.refreshed >= 1);
   assert.deepEqual([...seen].sort(), ['p_a', 'p_b', 'p_c']);
+});
+
+test('seed prompts with generated history only and appends a new batch', async () => {
+  const priorGenerated = 'Alpha told Beta, "word is Gamma hid a cart behind the legal ID again"';
+  const onAirText = 'Alpha said on air, "booth whisper that must not enter the prompt"';
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({ text: onAirText, hearerPersonaIds: null })],
+    generatedGossipHistory: [[priorGenerated]],
+  });
+  const seenExisting = [];
+  const result = await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    now: new Date('2026-09-20T08:00:00.000Z'),
+    timezone: 'UTC',
+    generate: async ({ existing }) => {
+      seenExisting.push([...existing]);
+      return { rumor: 'word is Gamma taped a dead cart over the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.seeded, 1);
+  assert.deepEqual(seenExisting, [[priorGenerated]]);
+  assert.ok(!seenExisting[0].includes(onAirText));
+  const state = await read();
+  const wrapped = 'Alpha told Beta, "word is Gamma taped a dead cart over the legal ID"';
+  assert.deepEqual(state.generatedGossipHistory, [[priorGenerated], [wrapped]]);
+  assert.ok(state.tidbits.some((t) => t.text === onAirText));
+  assert.ok(state.tidbits.some((t) => t.text === wrapped));
+});
+
+test('refresh clears tidbits but preserves history until the new batch appends', async () => {
+  const priorGenerated = 'Beta told Alpha, "unconfirmed Gamma coughed a cart that was only static"';
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({ text: 'stale board item', hearerPersonaIds: null })],
+    generatedGossipHistory: [[priorGenerated]],
+  });
+  const seenExisting = [];
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ existing }) => {
+      seenExisting.push([...existing]);
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 1);
+  assert.deepEqual(seenExisting, [[priorGenerated]]);
+  const state = await read();
+  assert.equal(state.tidbits.length, 1);
+  assert.ok(!state.tidbits.some((t) => t.text === 'stale board item'));
+  const wrapped = 'Alpha said on air, "unconfirmed the booth kettle whistled through the legal ID"';
+  assert.deepEqual(state.generatedGossipHistory, [[priorGenerated], [wrapped]]);
+});
+
+test('historyGenerations 0 sends empty existing history and clears persisted history', async () => {
+  const priorGenerated = 'Alpha told Beta, "word is Gamma hid a cart behind the legal ID again"';
+  const { store, read } = await tempStore({
+    generatedGossipHistory: [[priorGenerated]],
+  });
+  const seenExisting = [];
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async ({ existing }) => {
+      seenExisting.push([...existing]);
+      return { rumor: 'unconfirmed the booth kettle whistled twice tonight' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 1);
+  assert.deepEqual(seenExisting, [[]]);
+  const state = await read();
+  assert.deepEqual(state.generatedGossipHistory, []);
 });
