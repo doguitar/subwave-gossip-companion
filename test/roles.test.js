@@ -69,5 +69,5 @@ test('telephone prompt carries the immediately previous telling', () => {
   });
   assert.match(prompt, /Telephone-chain source/);
   assert.match(prompt, /word is the kettle moved/);
-  assert.match(prompt, /plausible telephone-game mutation/);
+  assert.match(prompt, /one telephone-game step/);
 });

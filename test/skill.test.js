@@ -92,12 +92,12 @@ test('skill uses the configured feed URL and does not invent a host', async () =
 
 test('skill instructions mutate one detail in character and never narrate drift', async () => {
   const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /Choose one item supplied by the tool/);
+  assert.match(skill, /Choose one item from the tool/);
   assert.match(skill, /Change exactly one concrete detail/);
   assert.match(skill, /verified teller name/);
-  assert.match(skill, /Never invent/);
-  assert.match(skill, /stay silent/i);
-  assert.match(skill, /Never say or imply that the rumor changed, drifted, got mixed up/);
+  assert.match(skill, /Use only identities the tool supplies/);
+  assert.match(skill, /say nothing/);
+  assert.match(skill, /no comparison to any earlier telling/);
 
   const source = 'Alpha heard the cart skip twice behind the booth.';
   const spoken = 'Word on the overnight shift is the cart skipped twice behind the mic stand.';

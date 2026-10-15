@@ -1,27 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { appendLlmCall } from './callLog.js';
 import { joinNames } from './roles.js';
 
-export const SEED_SYSTEM = `You invent one fictional radio-station rumor for a corkboard.
-
-The teller, hearers, and rumor-targets are already chosen. You write ONLY the quoted rumor. Do not assign people. Do not write the wrapper sentence.
-
-## Output
-Return JSON only. No markdown.
-{"rumor":"string"}
-
-## Rumor
-- Never use placeholder values such as "string", "text", "rumor", or "example".
-- Do not reason aloud or emit analysis; return only the JSON object.
-- No length restriction. Preserve the model's complete rumor text.
-- Make it funny: use a sharp, specific, in-character comic beat rather than generic silliness.
-- Adult themes are allowed, including bawdy humor, innuendo, flirtation, and embarrassing grown-up situations.
-- Do not write "told" or "said on air". That wrapper is added after you.
-
-## Targets
-- If rumor-targets are listed, the rumor is ABOUT those people. Use their exact display names in the rumor.
-- Write the rumor in a way that fits their souls (voice, habits, obsessions) and the teller's soul (how they would phrase a scrap of hallway talk).
-- If there are no rumor-targets, the rumor is about station-life, not a person. Do not name any persona.`;
+export const SEED_SYSTEM = readFileSync(new URL('../prompt.md', import.meta.url), 'utf8').trim();
 
 export const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -37,10 +19,10 @@ export function seedUserPrompt({ houseRules = '', day, roles, existing = [], pre
     : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
   const targets = roles.targets.length
     ? `${joinNames(roles.targets.map((p) => p.name))} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}`
-    : '(none — rumor is about station-life, not a person; do not name a persona)';
+    : '(none — station-life only; name no persona)';
   const avoid = existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)';
   const evolution = previousTidbit
-    ? `\n## Telephone-chain source\nThis is the immediately preceding telling:\n${previousTidbit}\nRetell this same rumor in a plausible telephone-game mutation. Preserve its core subject and thread, but introduce one believable distortion or embellishment. Do not start a new unrelated rumor.\n`
+    ? `\n## Telephone-chain source\nPreceding telling:\n${previousTidbit}\nRetell this same rumor as one telephone-game step: keep its core subject and thread, and add one believable distortion or embellishment.\n`
     : '';
   return `Station day: ${day}
 
@@ -53,7 +35,7 @@ Write one rumor in the teller's voice, about the rumor-targets when any are list
 ## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}
 
-Do not retell:
+Write a rumor whose subject, people, and comic beat are all new beside these:
 ${avoid}`;
 }
 
