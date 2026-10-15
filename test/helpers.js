@@ -56,6 +56,9 @@ export async function tempStore(state) {
   if (state) {
     await store.mutate((s) => {
       s.tidbits = state.tidbits || [];
+      if (state.generatedGossipHistory !== undefined) {
+        s.generatedGossipHistory = state.generatedGossipHistory;
+      }
     });
   }
   return { store, filePath, read: () => readFile(filePath, 'utf8').then(JSON.parse) };

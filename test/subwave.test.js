@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SubwaveAdapter, authorizationHeader, encodeHttpAuth } from '../src/subwave.js';
+import { SubwaveAdapter, authorizationHeader, encodeHttpAuth, eventsFromSession } from '../src/subwave.js';
 
 const schedule = {
   personas: [
@@ -114,4 +114,31 @@ test('getDebug sends Basic auth and reads tts.recentCalls', async () => {
   });
   const debug = await adapter.getDebug();
   assert.equal(debug.tts.recentCalls[0].persona, 'Reed Silver');
+});
+
+test('spoken session events keep an explicit actor id', () => {
+  const { events } = eventsFromSession({
+    messages: [
+      {
+        id: 'evt-1',
+        kind: 'station-gossip',
+        text: 'Word is the cart skipped',
+        meta: {
+          spokenAt: '2026-09-19T12:00:00.000Z',
+          actor_persona_id: 'persona-a',
+          show: 'Test Show',
+        },
+      },
+      {
+        id: 'evt-2',
+        kind: 'station-gossip',
+        text: 'No actor on this one',
+        personaId: 'should-not-copy',
+        meta: { spokenAt: '2026-09-19T12:05:00.000Z' },
+      },
+    ],
+  });
+  assert.equal(events[0].actorPersonaId, 'persona-a');
+  assert.equal(events[0].show, 'Test Show');
+  assert.equal(events[1].actorPersonaId, undefined);
 });

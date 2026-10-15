@@ -35,7 +35,21 @@ test('buildLlmRequest covers openai, google, and anthropic', () => {
   });
   assert.equal(openai.url, 'https://api.openai.com/v1/chat/completions');
   assert.equal(openai.headers.Authorization, 'Bearer sk-test');
+  assert.equal(openai.body.response_format.type, 'json_object');
   assert.equal(openai.body.messages[0].content, 'sys');
+
+  const local = buildLlmRequest({
+    provider: 'openai',
+    apiKey: '',
+    model: 'gemma-4-e4b-it-heretic',
+    openaiBaseUrl: 'http://10.10.1.50:1234/v1',
+    system: 'sys',
+    user: 'usr',
+  });
+  assert.equal(local.url, 'http://10.10.1.50:1234/v1/chat/completions');
+  assert.equal(local.headers.Authorization, undefined);
+  assert.equal(local.body.response_format, undefined);
+  assert.equal(local.body.model, 'gemma-4-e4b-it-heretic');
 
   const google = buildLlmRequest({
     provider: 'google',

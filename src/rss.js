@@ -33,6 +33,7 @@ export function buildRss({ items, title = FEED_TITLE, link = '' }) {
         itemLink ? `      <link>${escapeXml(itemLink)}</link>` : null,
         `      <guid isPermaLink="false">${escapeXml(itemGuid(item))}</guid>`,
         `      <pubDate>${escapeXml(toRfc822(item.createdAt))}</pubDate>`,
+        item.tellerName ? `      <gossipTeller>${escapeXml(item.tellerName)}</gossipTeller>` : null,
         '    </item>',
       ].filter(Boolean).join('\n');
     })

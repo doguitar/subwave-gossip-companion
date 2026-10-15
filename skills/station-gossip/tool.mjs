@@ -8,9 +8,32 @@ export const configFields = {
   },
 };
 
-function feedUrl(baseUrl, showTitle) {
+function feedUrl(baseUrl, showTitle, actorPersonaId) {
   const root = String(baseUrl || '').replace(/\/+$/, '');
-  return `${root}/gossip.rss?show=${encodeURIComponent(showTitle)}`;
+  let url = `${root}/gossip.rss?show=${encodeURIComponent(showTitle)}`;
+  if (actorPersonaId) url += `&actor=${encodeURIComponent(actorPersonaId)}`;
+  return url;
+}
+
+function asId(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return '';
+}
+
+function resolveActor(ctx = {}, services = {}) {
+  const candidates = [
+    ctx.personaId,
+    ctx.persona?.id,
+    ctx.characterId,
+    ctx.character?.id,
+    ctx.actorPersonaId,
+    services.context?.personaId,
+  ];
+  for (const value of candidates) {
+    const id = asId(value);
+    if (id) return id;
+  }
+  return '';
 }
 
 function asShowTitle(value) {
@@ -49,7 +72,14 @@ function parseRssItems(xml) {
   for (const block of blocks) {
     const description = unescapeXml(matchTag(block, 'description'));
     if (!description) continue;
-    items.push({ text: description });
+    const guid = matchTag(block, 'guid');
+    const pubDate = matchTag(block, 'pubDate');
+    const teller = unescapeXml(matchTag(block, 'gossipTeller'));
+    const item = { text: description };
+    if (guid) item.guid = guid;
+    if (pubDate) item.pubDate = pubDate;
+    if (teller) item.teller = teller;
+    items.push(item);
   }
   return items;
 }
@@ -80,13 +110,17 @@ async function getText(fetchImpl, url) {
 
 export default async function (ctx = {}, _state, services = {}, config = {}) {
   const show = resolveShow(ctx, services, config);
-  const baseUrl = config.feedUrl || config.companionUrl || config.feed || 'http://10.10.1.50:8787';
+  const configured = config.feedUrl || config.companionUrl || config.feed || '';
+  const baseUrl = !configured || /subwave-gossip-companion/i.test(configured)
+    ? 'http://10.10.1.50:8787'
+    : configured;
   const log = services.log || console.log;
   if (!show) {
     log?.(`[station-gossip] no show in context keys=${Object.keys(ctx || {}).join(',')}`);
     return { available: false };
   }
-  const url = feedUrl(baseUrl, show);
+  const actor = resolveActor(ctx, services);
+  const url = feedUrl(baseUrl, show, actor);
   log?.(`[station-gossip] fetching ${url}`);
   try {
     let xml;

@@ -1,4 +1,4 @@
-import { currentTidbits, tidbitKey } from './store.js';
+import { currentTidbits, recordGossipComment, tidbitKey } from './store.js';
 import { matchSpokenTidbit } from './spoken.js';
 
 export function normalizeSpokenEvent(raw, candidates = []) {
@@ -10,10 +10,14 @@ export function normalizeSpokenEvent(raw, candidates = []) {
   const hit = matchSpokenTidbit(candidates, spokenText) || (spokenText
     ? candidates.find((t) => t.text === spokenText)
     : null);
+  const actorPersonaId = String(raw.actorPersonaId || raw.actor_persona_id || '').trim();
+  const show = String(raw.show || raw.showTitle || raw.show_title || '').trim();
   return {
     spokenAt: spokenAt || hit?.createdAt || '',
     spokenText,
     match: hit || null,
+    ...(actorPersonaId ? { actorPersonaId } : {}),
+    ...(show ? { show } : {}),
   };
 }
 
@@ -39,6 +43,14 @@ export async function ingestSpoken({ store, adapter, log = console }) {
       if (!tidbit) {
         skipped += 1;
         continue;
+      }
+      if (event.actorPersonaId) {
+        recordGossipComment(state, {
+          tidbitId: tidbit.id,
+          actorPersonaId: event.actorPersonaId,
+          show: event.show || '',
+          commentedAt: event.spokenAt,
+        });
       }
       if (tidbit.hearerPersonaIds === null) {
         skipped += 1;

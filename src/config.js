@@ -4,6 +4,7 @@ import path from 'node:path';
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_SEED_CAP = 5;
+const DEFAULT_GOSSIP_HISTORY_GENERATIONS = 7;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -49,6 +50,12 @@ export function loadConfig(env = process.env) {
   const seedCap = Number(seedCapRaw);
   if (!Number.isInteger(seedCap) || seedCap < 1 || seedCap > 50) {
     errors.push('GOSSIP_SEED_CAP must be an integer 1-50');
+  }
+
+  const historyGenerationsRaw = env.GOSSIP_HISTORY_GENERATIONS ?? String(DEFAULT_GOSSIP_HISTORY_GENERATIONS);
+  const gossipHistoryGenerations = Number(historyGenerationsRaw);
+  if (!Number.isInteger(gossipHistoryGenerations) || gossipHistoryGenerations < 0 || gossipHistoryGenerations > 50) {
+    errors.push('GOSSIP_HISTORY_GENERATIONS must be an integer 0-50');
   }
 
   const host = (env.GOSSIP_HOST || '0.0.0.0').trim();
@@ -108,6 +115,7 @@ export function loadConfig(env = process.env) {
     host,
     port,
     seedCap,
+    gossipHistoryGenerations,
     statePath,
     feedBaseUrl,
     timezone,

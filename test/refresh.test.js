@@ -6,7 +6,14 @@ import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from 
 const servers = [];
 
 async function start(store, adapter, generate, pickRoles) {
-  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '', refreshCount: 1, timezone: 'UTC' };
+  const config = {
+    host: '127.0.0.1',
+    port: 0,
+    feedBaseUrl: '',
+    refreshCount: 1,
+    timezone: 'UTC',
+    gossipHistoryGenerations: 7,
+  };
   const server = createServer({
     store,
     adapter,

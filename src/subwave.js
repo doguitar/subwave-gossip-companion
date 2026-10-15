@@ -202,11 +202,15 @@ export function eventsFromSession(session, cursor) {
       if (idMatch) tidbitId = idMatch[1];
     }
     if (!sourceEventId || !spokenAt) continue;
+    const actorPersonaId = String(meta.actorPersonaId || meta.actor_persona_id || '').trim();
+    const show = String(meta.show || meta.showTitle || meta.show_title || '').trim();
     events.push({
       tidbitId: tidbitId ? String(tidbitId) : '',
       spokenAt: String(spokenAt),
       sourceEventId: String(sourceEventId),
       spokenText: String(msg.text || ''),
+      ...(actorPersonaId ? { actorPersonaId } : {}),
+      ...(show ? { show } : {}),
     });
   }
   if (!cursor) return { events, cursor: lastCursor(events) };

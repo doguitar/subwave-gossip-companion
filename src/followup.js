@@ -29,7 +29,8 @@ async function recoverFullSpokenText(spoken, logPath, log = console) {
   }
   return spoken;
 }
-import { currentTidbits, tidbitKey } from './store.js';
+import { currentTidbits, legacyTidbitId, recordGossipComment, tidbitKey } from './store.js';
+import { matchVoicedTidbit } from './spoken.js';
 import { waitForStationGossipTts } from './ttsWatch.js';
 
 function messageTime(msg) {
@@ -61,15 +62,20 @@ export function formatOnAirTidbit(spoken, roster = [], showPersonas = [], sessio
   const showHost = showPersonas?.[0];
   const cohosted = /^station-gossip-cohosted$/i.test(String(spoken?.kind || ''));
 
-  let tellerPersonaId = typeof spoken?.meta?.personaId === 'string' ? spoken.meta.personaId.trim() : '';
-  let broadcaster = typeof spoken?.meta?.personaName === 'string' ? spoken.meta.personaName.trim() : '';
-  const explicitSpeaker = Boolean(tellerPersonaId || broadcaster);
+  const rawPersonaId = typeof spoken?.meta?.personaId === 'string' ? spoken.meta.personaId.trim() : '';
+  const rawPersonaName = typeof spoken?.meta?.personaName === 'string' ? spoken.meta.personaName.trim() : '';
+  const explicitSpeaker = Boolean(rawPersonaId || rawPersonaName);
+  const namedPersona = (rawPersonaId && rosterById.get(rawPersonaId))
+    || rosterByName.get(rawPersonaId.toLowerCase())
+    || rosterByName.get(rawPersonaName.toLowerCase())
+    || null;
 
-  if (tellerPersonaId && rosterById.has(tellerPersonaId)) {
-    broadcaster = rosterById.get(tellerPersonaId).name || broadcaster;
-  } else if (broadcaster && rosterByName.has(broadcaster.toLowerCase())) {
-    tellerPersonaId = tellerPersonaId || rosterByName.get(broadcaster.toLowerCase()).id;
-    broadcaster = rosterByName.get(broadcaster.toLowerCase()).name;
+  let tellerPersonaId = namedPersona?.id || (rosterById.has(rawPersonaId) ? rawPersonaId : '');
+  let broadcaster = namedPersona?.name || rawPersonaName;
+
+  if (namedPersona) {
+    tellerPersonaId = namedPersona.id;
+    broadcaster = namedPersona.name || broadcaster;
   } else if (!cohosted) {
     if (!tellerPersonaId && fromSession?.id) tellerPersonaId = fromSession.id;
     if (!broadcaster && fromSession?.name) broadcaster = fromSession.name;
@@ -118,8 +124,10 @@ export async function appendGeneratedGossip({
 
   return store.mutate((state) => {
     const existing = currentTidbits(state);
-    if (existing.some((t) => tidbitKey(t) === tidbitKey(item))) {
+    const already = existing.find((t) => tidbitKey(t) === tidbitKey(item));
+    if (already) {
       log.info?.('[gossip] follow-up skipped; already stored');
+      attributeVoicedTidbits(state, { ...item, id: already.id }, spoken, session, log);
       return { added: 0, skipped: true };
     }
     const sameGossip = existing.find((t) => {
@@ -131,12 +139,37 @@ export async function appendGeneratedGossip({
       sameGossip.tellerPersonaId = item.tellerPersonaId;
       sameGossip.hearerPersonaIds = null;
       log.info?.(`[gossip] follow-up corrected to ${item.tellerPersonaId}`);
+      attributeVoicedTidbits(state, { ...item, id: sameGossip.id }, spoken, session, log);
       return { added: 0, skipped: false, corrected: true };
     }
+    item.id = legacyTidbitId(item);
     state.tidbits.push(item);
     log.info?.(`[gossip] follow-up added 1 from on-air ${item.createdAt}`);
+    attributeVoicedTidbits(state, item, spoken, session, log);
     return { added: 1, skipped: false };
   });
+}
+
+function attributeVoicedTidbits(state, item, spoken, session, log) {
+  const show = String(session?.session?.show || session?.show || '').trim();
+  const commentedAt = item.createdAt;
+  const actorPersonaId = item.tellerPersonaId;
+  const targets = new Map();
+  const source = matchVoicedTidbit(
+    currentTidbits(state).filter((tidbit) => tidbit.id !== item.id),
+    spoken?.text,
+  );
+  if (source?.id) targets.set(source.id, source);
+  if (item.id) targets.set(item.id, item);
+  for (const target of targets.values()) {
+    recordGossipComment(state, {
+      tidbitId: target.id,
+      actorPersonaId,
+      show,
+      commentedAt,
+    });
+  }
+  log.info?.(`[gossip] attributed on-air line to ${actorPersonaId} across ${targets.size} tidbit(s)`);
 }
 
 export function createFollowupWatcher({ store, adapter, config, log = console }) {
