@@ -4,7 +4,7 @@ export const configFields = {
   feedUrl: {
     type: 'string',
     label: 'UPDG Gossip',
-    hint: 'http://10.10.1.50:8787',
+    hint: 'http://127.0.0.1:8080',
   },
 };
 
@@ -110,11 +110,12 @@ async function getText(fetchImpl, url) {
 
 export default async function (ctx = {}, _state, services = {}, config = {}) {
   const show = resolveShow(ctx, services, config);
-  const configured = config.feedUrl || config.companionUrl || config.feed || '';
-  const baseUrl = !configured || /subwave-gossip-companion/i.test(configured)
-    ? 'http://10.10.1.50:8787'
-    : configured;
   const log = services.log || console.log;
+  const baseUrl = String(config.feedUrl || config.companionUrl || config.feed || '').trim();
+  if (!baseUrl) {
+    log?.('[station-gossip] feedUrl is not configured');
+    return { available: false };
+  }
   if (!show) {
     log?.(`[station-gossip] no show in context keys=${Object.keys(ctx || {}).join(',')}`);
     return { available: false };

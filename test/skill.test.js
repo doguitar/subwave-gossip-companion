@@ -72,6 +72,24 @@ test('skill appends the encoded actor and keeps teller metadata', async () => {
   });
 });
 
+test('skill uses the configured feed URL and does not invent a host', async () => {
+  const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
+  assert.doesNotMatch(skill, /10\.10\.1\.50/);
+  const configured = 'http://gossip.example:8787';
+  const result = await runGossipSkill(
+    { show: 'Stahlwerk' },
+    {},
+    { fetch: async (url) => {
+      assert.equal(url, 'http://gossip.example:8787/gossip.rss?show=Stahlwerk');
+      return { ok: true, text: async () => '<rss version="2.0"><channel><item><description>Word is the condenser hums</description></item></channel></rss>' };
+    } },
+    { feedUrl: configured },
+  );
+  assert.equal(result.available, true);
+  const missing = await runGossipSkill({ show: 'Stahlwerk' }, {}, { fetch: async () => { throw new Error('should not fetch'); } }, {});
+  assert.deepEqual(missing, { available: false });
+});
+
 test('skill instructions mutate one detail in character and never narrate drift', async () => {
   const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /Choose one item supplied by the tool/);

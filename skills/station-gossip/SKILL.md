@@ -3,7 +3,6 @@ name: station-gossip
 label: Station gossip
 cooldown: 90m
 context: show, listeners
-feedUrl: http://10.10.1.50:8787
 ---
 Choose one item supplied by the tool. The feed is already ordered for you; prefer the first item.
 
