@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { rumorFromPayload } from './llm.js';
 import { hearerIdsForRoles, pickGossipRoles, wrapRumor } from './roles.js';
 import {
@@ -23,6 +24,7 @@ export function stationDay(now = new Date(), timeZone = 'UTC') {
 
 function tidbitFromRoles(roles, rumor, createdAt) {
   return {
+    id: randomUUID(),
     text: wrapRumor(roles, rumor),
     createdAt,
     tellerPersonaId: roles.teller.id,

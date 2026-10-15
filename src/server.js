@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { currentTidbits, tidbitsKnownBy } from './store.js';
+import { currentTidbits, gossipForActor } from './store.js';
 import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
@@ -85,7 +85,18 @@ export function createServer({ store, adapter, config, log = console, watcher, g
         return;
       }
       const personas = await adapter.getShowPersonas(show);
-      const items = personas.length ? tidbitsKnownBy(store.snapshot(), personas.map((p) => p.id)) : [];
+      const actor = (url.searchParams.get('actor') || '').trim();
+      const known = personas.length
+        ? gossipForActor(store.snapshot(), personas.map((p) => p.id), actor, show)
+        : [];
+      const personaById = new Map(personas.map((p) => [p.id, p]));
+      const items = known.map((item) => {
+        const persona = personaById.get(item.tellerPersonaId);
+        const tellerName = persona && typeof persona.name === 'string' && persona.name.trim() && persona.name !== persona.id
+          ? persona.name.trim()
+          : '';
+        return tellerName ? { ...item, tellerName } : item;
+      });
       if (!personas.length) {
         log.warn?.(`[gossip] empty RSS for show=${show} (no personas)`);
       }

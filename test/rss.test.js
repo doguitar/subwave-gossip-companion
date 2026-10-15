@@ -105,3 +105,26 @@ test('RSS reloads the JSON file on every request', async () => {
   const third = await (await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`)).text();
   assert.doesNotMatch(third, /<item>/);
 });
+
+test('actor RSS keeps text, guid, date, and escaped teller metadata', async () => {
+  const { store } = await tempStore({
+    tidbits: [
+      tidbit({
+        id: 'rumor-1',
+        text: 'Alpha & Beta <heard> "news"',
+        tellerPersonaId: PERSONA_A.id,
+        hearerPersonaIds: [PERSONA_B.id],
+        createdAt: '2026-09-19T02:00:00.000Z',
+      }),
+    ],
+  });
+  const base = await start(store, stubAdapter());
+  const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}&actor=persona-a`);
+  assert.equal(res.status, 200);
+  const xml = await res.text();
+  assert.match(xml, /Alpha &amp; Beta &lt;heard&gt; &quot;news&quot;/);
+  assert.match(xml, /<guid isPermaLink="false">rumor-1<\/guid>/);
+  assert.match(xml, /<pubDate>[^<]+<\/pubDate>/);
+  assert.match(xml, /<gossipTeller>Alpha<\/gossipTeller>/);
+  assert.doesNotMatch(xml, /hearer|p_a|p_b|PERSONA/);
+});

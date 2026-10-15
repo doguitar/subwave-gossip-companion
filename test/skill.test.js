@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import runGossipSkill from '../skills/station-gossip/tool.mjs';
 
@@ -41,4 +42,50 @@ test('skill returns items without teller or spoken-id events', async () => {
   assert.equal(result.events, undefined);
   assert.ok(!JSON.stringify(result).includes('tidbit_id'));
   assert.ok(!JSON.stringify(result.items).includes('teller'));
+});
+
+test('skill appends the encoded actor and keeps teller metadata', async () => {
+  const xml = `<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<item>
+  <guid>rumor-1</guid>
+  <description>Alpha &amp; Beta heard the cart skip twice</description>
+  <pubDate>Sat, 19 Sep 2026 02:00:00 GMT</pubDate>
+  <gossipTeller>Alpha &amp; Crew</gossipTeller>
+</item>
+</channel></rss>`;
+  const result = await runGossipSkill(
+    { show: 'Test Show', persona: { id: 'persona a/b' } },
+    {},
+    { fetch: async (url) => {
+      assert.equal(url, 'http://companion.test/gossip.rss?show=Test%20Show&actor=persona%20a%2Fb');
+      return { ok: true, text: async () => xml };
+    } },
+    { feedUrl: 'http://companion.test' },
+  );
+  assert.equal(result.available, true);
+  assert.deepEqual(result.items[0], {
+    text: 'Alpha & Beta heard the cart skip twice',
+    guid: 'rumor-1',
+    pubDate: 'Sat, 19 Sep 2026 02:00:00 GMT',
+    teller: 'Alpha & Crew',
+  });
+});
+
+test('skill instructions mutate one detail in character and never narrate drift', async () => {
+  const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
+  assert.match(skill, /Choose one item supplied by the tool/);
+  assert.match(skill, /Change exactly one concrete detail/);
+  assert.match(skill, /verified teller name/);
+  assert.match(skill, /Never invent/);
+  assert.match(skill, /stay silent/i);
+  assert.match(skill, /Never say or imply that the rumor changed, drifted, got mixed up/);
+
+  const source = 'Alpha heard the cart skip twice behind the booth.';
+  const spoken = 'Word on the overnight shift is the cart skipped twice behind the mic stand.';
+  assert.notEqual(spoken, source);
+  assert.match(spoken, /cart skip/i);
+  assert.doesNotMatch(spoken, /chang|drift|version|mixed up|earlier|before/i);
+  assert.match(spoken, /mic stand/);
+  assert.doesNotMatch(spoken, /booth/);
 });

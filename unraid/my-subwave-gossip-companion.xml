@@ -7,7 +7,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/doguitar/subwave-gossip-companion</Support>
   <Project>https://github.com/doguitar/subwave-gossip-companion</Project>
-  <Overview>Persona-aware fictional gossip companion for SUB/WAVE. Persistent state, prompt, and LLM call logs are stored below the workspace path.</Overview>
+  <Overview>Persona-aware fictional gossip companion for SUB/WAVE. Serves /gossip.rss?show=&amp;actor= so each speaking character gets show-known rumors, skips the rumor they most recently voiced, and receives a gossipTeller name when that teller is on the show. Spoken events and TTS follow-ups record comments. Persistent state, prompt, and LLM call logs are stored below the workspace path.</Overview>
   <Category>MediaServer:Audio</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <Icon>https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/main/icon.png</Icon>

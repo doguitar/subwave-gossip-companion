@@ -179,7 +179,7 @@ test('appendGeneratedGossip stores on-air text with null hearers and is idempote
   });
   assert.equal(second.skipped, true);
   const state = await read();
-  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory']);
+  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory', 'gossipComments']);
   assert.deepEqual(state.generatedGossipHistory, []);
   assert.equal(state.tidbits.length, 1);
   assert.equal(
@@ -189,6 +189,41 @@ test('appendGeneratedGossip stores on-air text with null hearers and is idempote
   assert.equal(state.tidbits[0].hearerPersonaIds, null);
   assert.equal(state.tidbits[0].tellerPersonaId, 'p_79eaff');
   assert.equal(state.tidbits[0].createdAt, '2026-09-19T16:24:49.600Z');
+});
+
+test('TTS display name Uncle Kai is stored as his persona id and comments the source rumor', async () => {
+  const { store, read } = await tempStore();
+  const source = 'Word is Roxy Glo tried to teach Werner Stahl how to clean da bilge pump this mornin, but he keep insistin dat scrub require wearin nothing but a single pair of swim briefs.';
+  await store.mutate((state) => {
+    state.tidbits.push({
+      id: 'rumor-bilge',
+      text: source,
+      createdAt: '2026-10-15T01:00:00.000Z',
+      tellerPersonaId: 'p_other',
+      hearerPersonaIds: null,
+    });
+  });
+  const roster = [{ id: 'p_79eaff', name: 'Uncle Kai' }];
+  const aired = {
+    kind: 'station-gossip',
+    text: 'Word is Roxy Glo tried to teach Werner Stahl how to clean da bilge pump this mornin, but he keep insistin dat scrub require wearin nothing but Hawaiian print shorts.',
+    t: '2026-10-15T01:34:20.342Z',
+    meta: { airedAt: '2026-10-15T01:34:20.342Z', personaId: 'Uncle Kai', personaName: 'Uncle Kai' },
+  };
+  const session = { session: { show: 'Island Time' } };
+  await appendGeneratedGossip({
+    store,
+    roster,
+    showPersonas: roster,
+    spoken: aired,
+    session,
+    log: { info() {}, warn() {} },
+  });
+  const state = await read();
+  const comment = state.gossipComments.find((entry) => entry.tidbitId === 'rumor-bilge');
+  assert.equal(comment.actorPersonaId, 'p_79eaff');
+  assert.equal(comment.show, 'Island Time');
+  assert.equal(state.tidbits.at(-1).tellerPersonaId, 'p_79eaff');
 });
 
 test('formatOnAirTidbit skips when identity cannot be resolved', () => {

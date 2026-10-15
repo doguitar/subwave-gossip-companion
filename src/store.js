@@ -1,9 +1,11 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+const COMMENT_LIMIT = 1000;
+
 export function emptyState() {
-  return { tidbits: [], generatedGossipHistory: [] };
+  return { tidbits: [], generatedGossipHistory: [], gossipComments: [] };
 }
 
 function normalizeHistoryBatch(raw) {
@@ -18,31 +20,81 @@ function normalizeGeneratedGossipHistory(raw) {
     .filter((batch) => batch.length > 0);
 }
 
+export function tidbitKey(t) {
+  return `${t?.text || ''}\n${t?.createdAt || ''}`;
+}
+
+export function legacyTidbitId(raw) {
+  return createHash('sha1').update(tidbitKey(raw)).digest('hex');
+}
+
 export function normalizeTidbit(raw) {
-  if (!raw || typeof raw !== 'object') {
-    return {
-      text: '',
-      createdAt: '',
-      tellerPersonaId: '',
-      hearerPersonaIds: [],
+  const base = !raw || typeof raw !== 'object'
+    ? { text: '', createdAt: '', tellerPersonaId: '', hearerPersonaIds: [] }
+    : {
+      text: typeof raw.text === 'string' ? raw.text : '',
+      createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+      tellerPersonaId: typeof raw.tellerPersonaId === 'string' ? raw.tellerPersonaId : '',
+      hearerPersonaIds: raw.hearerPersonaIds === null
+        ? null
+        : Array.isArray(raw.hearerPersonaIds)
+          ? raw.hearerPersonaIds.filter((id) => typeof id === 'string')
+          : [],
     };
-  }
-  return {
-    text: typeof raw.text === 'string' ? raw.text : '',
-    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
-    tellerPersonaId: typeof raw.tellerPersonaId === 'string' ? raw.tellerPersonaId : '',
-    hearerPersonaIds: raw.hearerPersonaIds === null
-      ? null
-      : Array.isArray(raw.hearerPersonaIds)
-        ? raw.hearerPersonaIds.filter((id) => typeof id === 'string')
-        : [],
-  };
+  const supplied = typeof raw?.id === 'string' ? raw.id.trim() : '';
+  return { ...base, id: supplied || legacyTidbitId(base) };
+}
+
+function normalizeComment(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const tidbitId = typeof raw.tidbitId === 'string' ? raw.tidbitId.trim() : '';
+  const actorPersonaId = typeof raw.actorPersonaId === 'string' ? raw.actorPersonaId.trim() : '';
+  const commentedAt = typeof raw.commentedAt === 'string' ? raw.commentedAt.trim() : '';
+  if (!id || !tidbitId || !actorPersonaId || !commentedAt) return null;
+  const show = typeof raw.show === 'string' ? raw.show : '';
+  return { id, tidbitId, actorPersonaId, show, commentedAt };
+}
+
+export function gossipComments(state) {
+  const comments = (Array.isArray(state?.gossipComments) ? state.gossipComments : [])
+    .map(normalizeComment)
+    .filter(Boolean);
+  comments.sort((a, b) => {
+    if (a.commentedAt !== b.commentedAt) return a.commentedAt < b.commentedAt ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return comments;
+}
+
+export function recordGossipComment(state, record) {
+  const comments = gossipComments(state);
+  const next = normalizeComment({
+    id: typeof record?.id === 'string' && record.id.trim() ? record.id.trim() : randomUUID(),
+    tidbitId: record?.tidbitId,
+    actorPersonaId: record?.actorPersonaId,
+    show: record?.show || '',
+    commentedAt: record?.commentedAt,
+  });
+  if (!next) return comments;
+  const duplicate = comments.some((c) => c.tidbitId === next.tidbitId
+    && c.actorPersonaId === next.actorPersonaId
+    && c.commentedAt === next.commentedAt
+    && c.show === next.show);
+  if (!duplicate) comments.push(next);
+  comments.sort((a, b) => {
+    if (a.commentedAt !== b.commentedAt) return a.commentedAt < b.commentedAt ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  state.gossipComments = comments.slice(-COMMENT_LIMIT);
+  return state.gossipComments;
 }
 
 export function normalizeState(parsed) {
   const tidbits = Array.isArray(parsed?.tidbits) ? parsed.tidbits.map(normalizeTidbit) : [];
   const generatedGossipHistory = normalizeGeneratedGossipHistory(parsed?.generatedGossipHistory);
-  return { tidbits, generatedGossipHistory };
+  const gossipCommentsList = gossipComments(parsed).slice(-COMMENT_LIMIT);
+  return { tidbits, generatedGossipHistory, gossipComments: gossipCommentsList };
 }
 
 function clone(value) {
@@ -133,22 +185,52 @@ export function appendGeneratedGossipHistory(state, generatedTexts, limit) {
   return state.generatedGossipHistory;
 }
 
-export function tidbitKey(t) {
-  return `${t?.text || ''}\n${t?.createdAt || ''}`;
+function knownTidbits(state, personaIds) {
+  const known = new Set(personaIds);
+  return currentTidbits(state).filter((t) => {
+    if (t.hearerPersonaIds === null) return true;
+    if (known.has(t.tellerPersonaId)) return true;
+    return (t.hearerPersonaIds || []).some((id) => known.has(id));
+  });
+}
+
+function compareShowKnown(a, b) {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+  if (a.text !== b.text) return a.text < b.text ? -1 : 1;
+  return 0;
 }
 
 export function tidbitsKnownBy(state, personaIds) {
-  const known = new Set(personaIds);
-  return currentTidbits(state)
-    .filter((t) => {
-      if (t.hearerPersonaIds === null) return true;
-      if (known.has(t.tellerPersonaId)) return true;
-      return (t.hearerPersonaIds || []).some((id) => known.has(id));
-    })
-    .slice()
-    .sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
-      if (a.text !== b.text) return a.text < b.text ? -1 : 1;
-      return 0;
-    });
+  return knownTidbits(state, personaIds).slice().sort(compareShowKnown);
+}
+
+function newestComment(comments, tidbit, show) {
+  const showKey = typeof show === 'string' ? show.trim() : '';
+  const matches = comments.filter((c) => c.tidbitId === tidbit.id && (!showKey || !c.show || c.show === showKey));
+  if (!matches.length) return null;
+  return matches.reduce((best, c) => (c.commentedAt > best.commentedAt ? c : best));
+}
+
+export function gossipForActor(state, personaIds, actorPersonaId, show) {
+  const known = knownTidbits(state, personaIds);
+  const actor = typeof actorPersonaId === 'string' ? actorPersonaId.trim() : '';
+  if (!actor) return known.slice().sort(compareShowKnown);
+  const comments = gossipComments(state);
+  const selected = known.filter((t) => {
+    const latest = newestComment(comments, t, show);
+    return !(latest && latest.actorPersonaId === actor);
+  });
+  const never = [];
+  const prior = [];
+  for (const tidbit of selected) {
+    const latest = newestComment(comments, tidbit, show);
+    if (!latest) never.push(tidbit);
+    else prior.push({ tidbit, commentedAt: latest.commentedAt });
+  }
+  never.sort(compareShowKnown);
+  prior.sort((a, b) => {
+    if (a.commentedAt !== b.commentedAt) return a.commentedAt < b.commentedAt ? -1 : 1;
+    return compareShowKnown(a.tidbit, b.tidbit);
+  });
+  return [...never, ...prior.map((row) => row.tidbit)];
 }

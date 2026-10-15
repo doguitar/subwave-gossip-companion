@@ -41,6 +41,20 @@ node src/cli.js refresh --base-dir .
 
 The HTTP service listens on `GOSSIP_HOST:GOSSIP_PORT` and exposes `/gossip.rss` and `POST /gossip/refresh`.
 
+### Character-aware RSS
+
+`GET /gossip.rss` requires `show`. The feed contains rumors known to that show's personas: public tidbits, tidbits told by someone on the show, and tidbits heard by someone on the show. Pass the speaking persona id as `actor` so the station skill can request that character's feed:
+
+```bash
+curl "http://127.0.0.1:8080/gossip.rss?show=Island%20Time&actor=p_79eaff"
+```
+
+With `actor`, the feed includes every known rumor except one whose newest comment on that show was made by the requesting actor. If that exclusion removes the only item, the feed is empty. Rumors nobody has commented on come first; previously commented rumors follow, oldest comment first. Without `actor`, the feed keeps show-known order and records nothing. An unknown show returns an empty feed. A missing `show` returns 400.
+
+Item text stays the plain rumor. Stable ids are the RSS GUIDs. When the teller is on the requested show, the item also includes an escaped `<gossipTeller>` display name. Hearer identities and persona ids are not emitted.
+
+A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events with an actor id record one when the line matches a tidbit. After a skill fetch, the TTS follow-up resolves the speaker from a persona id or display name and records the same kind of comment on the source rumor and the on-air tidbit. Fetches alone do not mark a rumor as voiced. The store keeps the newest 1000 comments.
+
 ### Refreshing gossip
 
 The CLI refresh replaces the current board with a new linked set of tidbits:

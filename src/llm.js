@@ -164,17 +164,19 @@ export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system
     };
   }
 
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const official = /api\.openai\.com/i.test(String(openaiBaseUrl || ''));
   return {
     url: openaiChatUrl(openaiBaseUrl),
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers,
     body: {
       model,
       temperature: 0.9,
-      response_format: { type: 'json_object' },
+      ...(official ? { response_format: { type: 'json_object' } } : {}),
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
@@ -225,7 +227,9 @@ export async function generateSeed({
   const provider = config.llmProvider || 'openai';
   const apiKey = config.llmApiKey;
   const model = config.llmModel || DEFAULT_MODELS[provider] || DEFAULT_MODELS.openai;
-  if (!apiKey) {
+  const openaiBaseUrl = config.openaiBaseUrl || config.llmUrl || DEFAULT_OPENAI_BASE_URL;
+  const localOpenAI = provider === 'openai' && !/api\.openai\.com/i.test(openaiBaseUrl);
+  if (!apiKey && !localOpenAI) {
     throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to generate gossip'), { code: 'CONFIG' });
   }
 
@@ -235,7 +239,7 @@ export async function generateSeed({
     provider,
     apiKey,
     model,
-    openaiBaseUrl: config.openaiBaseUrl || config.llmUrl || DEFAULT_OPENAI_BASE_URL,
+    openaiBaseUrl,
     system: systemPrompt,
     user,
   });
