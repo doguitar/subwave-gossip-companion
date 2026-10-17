@@ -90,20 +90,22 @@ test('skill uses the configured feed URL and does not invent a host', async () =
   assert.deepEqual(missing, { available: false });
 });
 
-test('skill instructions mutate one detail in character and never narrate drift', async () => {
+test('skill instructions escalate the rumor in character and never narrate drift', async () => {
   const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /Choose one item from the tool/);
-  assert.match(skill, /Change exactly one concrete detail/);
-  assert.match(skill, /verified teller name/);
-  assert.match(skill, /Use only identities the tool supplies/);
-  assert.match(skill, /say nothing/);
-  assert.match(skill, /no comparison to any earlier telling/);
+  assert.match(skill, /Take the first item/);
+  assert.match(skill, /Escalate/);
+  assert.match(skill, /more salacious/);
+  assert.match(skill, /whose version you are hearing/);
+  assert.match(skill, /your own scrap/);
+  assert.match(skill, /talking about me/);
+  assert.match(skill, /stay silent/);
+  assert.match(skill, /only one you have/);
 
   const source = 'Alpha heard the cart skip twice behind the booth.';
-  const spoken = 'Word on the overnight shift is the cart skipped twice behind the mic stand.';
+  const spoken = 'Word on the overnight shift is the cart machine threw itself through the booth wall and took the transmitter with it.';
   assert.notEqual(spoken, source);
-  assert.match(spoken, /cart skip/i);
+  assert.match(spoken, /cart/i);
   assert.doesNotMatch(spoken, /chang|drift|version|mixed up|earlier|before/i);
-  assert.match(spoken, /mic stand/);
-  assert.doesNotMatch(spoken, /booth/);
+  assert.match(spoken, /transmitter/);
+  assert.doesNotMatch(spoken, /skip twice/);
 });
