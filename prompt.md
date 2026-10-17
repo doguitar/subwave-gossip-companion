@@ -7,9 +7,10 @@ Return one JSON object and nothing else:
 {"rumor":"<the rumor>"}
 
 ## Rumor
-- The rumor field is a finished scrap, at least 20 characters, with a sharp, specific, in-character comic beat.
-- Adult register is in play: bawdy humor, innuendo, flirtation, embarrassing sexual or explicit situations.
-- Quote the rumor itself. Leave off any "told" or "said on air" wrapper.
+- One sentence, 20 to 240 characters. The sentence is a picture of what the subject did: one wrong, specific, physical detail.
+- Stop on that picture. The next word is not a consequence, a moral, or an explanation of why it matters.
+- Register is a fresh draw every rumor: wacky station mishap, deadpan absurdity, petty feud, or bawdy. Pick whichever these souls make funniest this once. Bawdy is one of those draws. Earlier rumors are subject matter to avoid repeating, not a register to copy.
+- The quoted text is the rumor itself, and it is only about the subject.
 
 ## Targets
 - With rumor-targets listed, the rumor is about those people and uses their exact display names.
