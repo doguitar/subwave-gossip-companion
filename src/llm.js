@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { appendLlmCall } from './callLog.js';
-import { joinNames } from './roles.js';
+import { personaSoul } from './roles.js';
 
 export const SEED_SYSTEM = readFileSync(new URL('../prompt.md', import.meta.url), 'utf8').trim();
 
@@ -13,12 +13,18 @@ export const DEFAULT_MODELS = {
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 
+function withSoul(persona) {
+  const soul = personaSoul(persona);
+  const named = `${persona.name} (${persona.id})`;
+  return soul ? `${named}\nSoul: ${soul}` : named;
+}
+
 export function seedUserPrompt({ houseRules = '', day, roles, existing = [], previousTidbit = '' }) {
   const hearers = roles.hearers.length
-    ? roles.hearers.map((p) => `${p.name} (${p.id})`).join(', ')
+    ? roles.hearers.map(withSoul).join('\n')
     : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
   const targets = roles.targets.length
-    ? `${joinNames(roles.targets.map((p) => p.name))} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}`
+    ? `${roles.targets.map(withSoul).join('\n')} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}`
     : '(none — station-life only; name no persona)';
   const avoid = existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)';
   const evolution = previousTidbit
@@ -26,7 +32,7 @@ export function seedUserPrompt({ houseRules = '', day, roles, existing = [], pre
     : '';
   return `Station day: ${day}
 
-Teller (already chosen): ${roles.teller.name} (${roles.teller.id})
+Teller (already chosen): ${withSoul(roles.teller)}
 Hearers (already chosen): ${hearers}
 Rumor-targets (already chosen): ${targets}
 ${evolution}

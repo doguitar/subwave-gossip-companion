@@ -49,7 +49,7 @@ async function generateOne({ generate, roster, houseRules = '', roles, day, exis
         attempt,
       });
       const rumor = rumorFromPayload(payload);
-      const check = validateRumor(rumor, { targets: roles.targets, minLength });
+      const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: 240 });
       if (check.ok) return { ok: true, tidbit: tidbitFromRoles(roles, rumor, createdAt) };
       lastReason = check.reason;
       log.warn?.(`[gossip] rumor rejected attempt=${attempt}/${maxAttempts}: ${check.reason}`);

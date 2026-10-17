@@ -53,10 +53,28 @@ test('seed prompt includes house rules and pre-picked rumor targets', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
   const prompt = seedUserPrompt({ houseRules: 'Adult language is allowed after 10 PM.', day: '2026-09-19', roles });
   assert.match(prompt, /Adult language is allowed after 10 PM/);
-  assert.doesNotMatch(prompt, /Dry, short sentences/);
-  assert.doesNotMatch(prompt, /Collects unused jingles/);
+  assert.match(prompt, /Dry, short sentences/);
+  assert.match(prompt, /Collects unused jingles/);
   assert.match(prompt, /Rumor-targets[\s\S]*Gamma/);
   assert.match(prompt, /Teller \(already chosen\): Alpha/);
+});
+
+test('seed prompt names a soulless persona without inventing a soul', () => {
+  const roles = {
+    teller: { id: 'p_a', name: 'Alpha' },
+    hearers: [],
+    targets: [{ id: 'p_c', name: 'Gamma', soul: 'Collects unused jingles.' }],
+  };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles });
+  assert.match(prompt, /Teller \(already chosen\): Alpha \(p_a\)/);
+  assert.doesNotMatch(prompt, /Teller \(already chosen\): Alpha \(p_a\)\nSoul:/);
+  assert.match(prompt, /Collects unused jingles/);
+});
+
+test('seed prompt includes each hearer soul', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles });
+  assert.match(prompt, /Warm, over-explains the kettle/);
 });
 
 test('telephone prompt carries the immediately previous telling', () => {
@@ -70,4 +88,6 @@ test('telephone prompt carries the immediately previous telling', () => {
   assert.match(prompt, /Telephone-chain source/);
   assert.match(prompt, /word is the kettle moved/);
   assert.match(prompt, /one telephone-game step/);
+  assert.match(prompt, /Dry, short sentences/);
+  assert.match(prompt, /Warm, over-explains the kettle/);
 });

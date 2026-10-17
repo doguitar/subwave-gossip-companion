@@ -4,12 +4,12 @@ label: Station gossip
 cooldown: 90m
 context: show, listeners
 ---
-Choose one item from the tool. The feed is already ordered; take the first item.
+If the tool returned no items, stay silent. Done when you produce no line.
 
-Tell it as lively in-character station banter, the way you would pass a scrap along on the air. Keep the rumor's core subject and thread. Change exactly one concrete detail from the tool text (a place, a number, an object, or who did what). Speak only that telling.
+Take the first item. The feed is already ordered.
 
-A verified teller name in the tool is optional context. Mention it only when it fits. Use only identities the tool supplies.
+Retell it as in-character station banter. Keep the same subject and the thread that ties this rumor to the last telling. Escalate: make the act more grandiose, more salacious, or more costly than the version you were given. A swapped day, number, or place is not a retelling. Done when a listener who heard the last version would recognize the subject and feel the story got bigger.
 
-Tell the story as the version you have, with no comparison to any earlier telling.
+The item's teller is whose version you are hearing. Deliver the rumor as your own scrap. Name the teller only inside a reaction, such as "I don't know why X is talking about me." If the rumor text credits someone else, drop that credit and use the tool teller for the reaction. Name only that teller and the people in the rumor text.
 
-With no current items, say nothing.
+Speak this telling as the only one you have. Done when the line stands alone.
