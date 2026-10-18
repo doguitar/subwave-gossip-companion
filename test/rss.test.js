@@ -106,11 +106,11 @@ test('RSS reloads the JSON file on every request', async () => {
   assert.doesNotMatch(third, /<item>/);
 });
 
-test('RSS without actor does not start TTS follow-up', async () => {
-  let followCalls = 0;
+test('RSS without actor starts TTS follow-up when the feed has items', async () => {
+  const followCalls = [];
   const watcher = {
-    afterSkillFetch() {
-      followCalls += 1;
+    afterSkillFetch(args) {
+      followCalls.push(args);
     },
   };
   const { store } = await tempStore({
@@ -132,7 +132,9 @@ test('RSS without actor does not start TTS follow-up', async () => {
   const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
   assert.equal(res.status, 200);
   assert.match(await res.text(), /Feed item/);
-  assert.equal(followCalls, 0);
+  assert.equal(followCalls.length, 1);
+  assert.equal(followCalls[0].show, 'Test Show');
+  assert.ok(followCalls[0].since instanceof Date);
 });
 
 test('RSS with actor starts TTS follow-up when the feed has items', async () => {
@@ -166,7 +168,7 @@ test('RSS with actor starts TTS follow-up when the feed has items', async () => 
   assert.ok(followCalls[0].since instanceof Date);
 });
 
-test('non-skill RSS followed by actor RSS still starts TTS follow-up', async () => {
+test('each item-bearing RSS request starts TTS follow-up regardless of actor', async () => {
   const followCalls = [];
   const watcher = {
     afterSkillFetch(args) {
@@ -191,8 +193,38 @@ test('non-skill RSS followed by actor RSS still starts TTS follow-up', async () 
 
   await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
   await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}&actor=${encodeURIComponent(PERSONA_A.id)}`);
-  assert.equal(followCalls.length, 1);
+  assert.equal(followCalls.length, 2);
   assert.equal(followCalls[0].show, 'Test Show');
+  assert.equal(followCalls[1].show, 'Test Show');
+});
+
+test('empty RSS feed does not start TTS follow-up', async () => {
+  let followCalls = 0;
+  const watcher = {
+    afterSkillFetch() {
+      followCalls += 1;
+    },
+  };
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Secret global item' })],
+  });
+  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '' };
+  const server = createServer({
+    store,
+    adapter: stubAdapter(),
+    config,
+    log: { warn() {}, error() {}, info() {} },
+    watcher,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Empty Show')}`);
+  assert.equal(res.status, 200);
+  assert.doesNotMatch(await res.text(), /<item>/);
+  assert.equal(followCalls, 0);
 });
 
 test('actor RSS keeps text, guid, date, and escaped teller metadata', async () => {
