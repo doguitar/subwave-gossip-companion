@@ -6,8 +6,8 @@ import { PERSONA_A, PERSONA_B, stubAdapter, tempStore, tidbit } from './helpers.
 
 const servers = [];
 
-async function start(store, adapter) {
-  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '' };
+async function start(store, adapter, feedBaseUrl = '') {
+  const config = { host: '127.0.0.1', port: 0, feedBaseUrl };
   const server = createServer({ store, adapter, config, log: { warn() {}, error() {}, info() {} }, watcher: { afterSkillFetch() {} } });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   servers.push(server);
@@ -127,4 +127,34 @@ test('actor RSS keeps text, guid, date, and escaped teller metadata', async () =
   assert.match(xml, /<pubDate>[^<]+<\/pubDate>/);
   assert.match(xml, /<gossipTeller>Alpha<\/gossipTeller>/);
   assert.doesNotMatch(xml, /hearer|p_a|p_b|PERSONA/);
+});
+
+test('feedBaseUrl self-link includes show and actor query params', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Rumor', tellerPersonaId: PERSONA_A.id, hearerPersonaIds: null })],
+  });
+  const base = await start(store, stubAdapter(), 'http://companion.test');
+  const res = await fetch(
+    `${base}/gossip.rss?show=${encodeURIComponent('Test Show')}&actor=${encodeURIComponent('persona-a')}`,
+  );
+  assert.equal(res.status, 200);
+  const xml = await res.text();
+  assert.match(
+    xml,
+    /<link>http:\/\/companion\.test\/gossip\.rss\?show=Test%20Show&amp;actor=persona-a<\/link>/,
+  );
+  const linkCount = [...xml.matchAll(/<link>[^<]+<\/link>/g)].length;
+  assert.equal(linkCount, 2);
+});
+
+test('feedBaseUrl self-link omits actor when request has no actor', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Rumor', tellerPersonaId: PERSONA_A.id, hearerPersonaIds: null })],
+  });
+  const base = await start(store, stubAdapter(), 'http://companion.test');
+  const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  assert.equal(res.status, 200);
+  const xml = await res.text();
+  assert.match(xml, /<link>http:\/\/companion\.test\/gossip\.rss\?show=Test%20Show<\/link>/);
+  assert.doesNotMatch(xml, /actor=/);
 });
