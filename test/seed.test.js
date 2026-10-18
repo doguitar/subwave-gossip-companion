@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { RUMOR_REGISTERS } from '../src/register.js';
+import { rumorTargetSetKey } from '../src/roles.js';
 import { refreshGossip, seedGossip } from '../src/seed.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
 
@@ -294,6 +295,130 @@ test('failed refresh leaves gossip comments unchanged', async () => {
   assert.equal(state.gossipComments.length, 1);
   assert.equal(state.gossipComments[0].id, 'keep-me');
   assert.equal(state.gossipComments[0].tidbitId, 'old');
+});
+
+test('refresh resamples when an accepted rumor would repeat the same target set', async () => {
+  const { store } = await tempStore();
+  const targetPair = {
+    teller: PERSONA_A,
+    hearers: [PERSONA_B],
+    targets: [PERSONA_C],
+  };
+  const otherTarget = {
+    teller: PERSONA_A,
+    hearers: [PERSONA_B],
+    targets: [],
+  };
+  const pickQueue = [targetPair, targetPair, otherTarget];
+  let pickIndex = 0;
+  const acceptedTargetKeys = [];
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => pickQueue[Math.min(pickIndex++, pickQueue.length - 1)],
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ roles }) => {
+      const key = rumorTargetSetKey(roles.targets);
+      acceptedTargetKeys.push(key);
+      const names = roles.targets.map((p) => p.name).join(' ');
+      const rumor = names
+        ? `unconfirmed ${names} hid a cart behind the legal ID twice`
+        : 'unconfirmed the booth kettle whistled through the legal ID';
+      return { rumor };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 2);
+  assert.deepEqual(acceptedTargetKeys, ['p_c', '(empty)']);
+});
+
+test('refresh treats target sets as order-independent', async () => {
+  const { store } = await tempStore();
+  const pairOne = {
+    teller: PERSONA_A,
+    hearers: [],
+    targets: [PERSONA_B, PERSONA_C],
+  };
+  const pairTwo = {
+    teller: PERSONA_A,
+    hearers: [],
+    targets: [PERSONA_C, PERSONA_B],
+  };
+  const singleton = {
+    teller: PERSONA_A,
+    hearers: [],
+    targets: [PERSONA_B],
+  };
+  const pickQueue = [pairOne, pairTwo, singleton];
+  let pickIndex = 0;
+  const acceptedTargetKeys = [];
+  await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => pickQueue[Math.min(pickIndex++, pickQueue.length - 1)],
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ roles }) => {
+      const key = rumorTargetSetKey(roles.targets);
+      acceptedTargetKeys.push(key);
+      const names = roles.targets.map((p) => p.name).join(' and ');
+      return { rumor: `unconfirmed ${names} hid a cart behind the legal ID twice` };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.deepEqual(acceptedTargetKeys, ['p_b,p_c', 'p_b']);
+});
+
+test('refresh allows at most one empty-target rumor when alternatives exist', async () => {
+  const { store } = await tempStore();
+  const pickQueue = [onAir, onAir, hallway];
+  let pickIndex = 0;
+  const acceptedTargetKeys = [];
+  await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => pickQueue[Math.min(pickIndex++, pickQueue.length - 1)],
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ roles }) => {
+      const key = rumorTargetSetKey(roles.targets);
+      acceptedTargetKeys.push(key);
+      const names = roles.targets.map((p) => p.name).join(' ');
+      const rumor = names
+        ? `unconfirmed ${names} hid a cart behind the legal ID twice`
+        : 'unconfirmed the booth kettle whistled through the legal ID';
+      return { rumor };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.deepEqual(acceptedTargetKeys, ['(empty)', 'p_c']);
+});
+
+test('refresh does not reserve a target set when generation fails', async () => {
+  const { store } = await tempStore();
+  let generateCalls = 0;
+  const acceptedTargetKeys = [];
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ roles }) => {
+      generateCalls += 1;
+      if (generateCalls === 1) return { rumor: 'short' };
+      acceptedTargetKeys.push(rumorTargetSetKey(roles.targets));
+      return { rumor: 'unconfirmed Gamma hid a cart behind the legal ID twice' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 2);
+  assert.deepEqual(acceptedTargetKeys, ['p_c', 'p_c']);
 });
 
 test('historyGenerations 0 sends empty existing history and clears persisted history', async () => {
