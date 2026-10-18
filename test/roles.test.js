@@ -104,6 +104,36 @@ test('seed prompt includes each hearer soul', () => {
   assert.match(prompt, /Warm, over-explains the kettle/);
 });
 
+test('seed prompt requires one shared beat when two rumor-targets are listed', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[1], roster[2]] };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
+  assert.match(prompt, /one shared beat/i);
+  assert.match(prompt, /Beta[\s\S]*Gamma/);
+  assert.match(prompt, /same moment|same scene/i);
+});
+
+test('seed prompt omits multi-target-only guidance for zero or one rumor-target', () => {
+  const zero = seedUserPrompt({
+    day: '2026-09-19',
+    roles: { teller: roster[0], hearers: [roster[1]], targets: [] },
+    register: RUMOR_REGISTERS[0],
+  });
+  const one = seedUserPrompt({
+    day: '2026-09-19',
+    roles: { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] },
+    register: RUMOR_REGISTERS[0],
+  });
+  assert.doesNotMatch(zero, /one shared beat/i);
+  assert.doesNotMatch(one, /one shared beat/i);
+});
+
+test('SEED_SYSTEM requires multi-target rumors to be one coherent beat', () => {
+  assert.match(SEED_SYSTEM, /exactly two rumor-targets/i);
+  assert.match(SEED_SYSTEM, /one (?:shared )?beat|same (?:moment|scene)/i);
+  assert.match(SEED_SYSTEM, /One sentence/);
+  assert.match(SEED_SYSTEM, /picture of what the subject did/);
+});
+
 test('telephone prompt carries the immediately previous telling', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
   const prompt = seedUserPrompt({
