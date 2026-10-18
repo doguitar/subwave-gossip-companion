@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { rumorFromPayload } from './llm.js';
 import { pickRumorRegister } from './register.js';
-import { hearerIdsForRoles, pickGossipRoles, wrapRumor } from './roles.js';
+import { hearerIdsForRoles, pickGossipRoles, rumorTargetSetKey, wrapRumor } from './roles.js';
 import {
   appendGeneratedGossipHistory,
   currentTidbits,
@@ -72,6 +72,30 @@ async function generateOne({ generate, roster, houseRules = '', roles, register,
 
 function defaultSleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const TARGET_SET_PICK_ATTEMPTS = 3;
+
+function applyUncoveredHearerBias(roles, roster, involved) {
+  const uncovered = roster.filter((persona) => !involved.has(persona.id));
+  if (!roles || !uncovered.length) return roles;
+  if (roles.teller.id === uncovered[0].id || roles.hearers.some((p) => p.id === uncovered[0].id)) {
+    return roles;
+  }
+  const hearers = roles.hearers.length >= 3
+    ? [...roles.hearers.slice(0, 2), uncovered[0]]
+    : [...roles.hearers, uncovered[0]];
+  return { ...roles, hearers };
+}
+
+function pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, usedTargetSets) {
+  let roles = null;
+  for (let attempt = 0; attempt < TARGET_SET_PICK_ATTEMPTS; attempt += 1) {
+    roles = applyUncoveredHearerBias(chooseRoles(roster), roster, involved);
+    if (!roles) return null;
+    if (!usedTargetSets.has(rumorTargetSetKey(roles.targets))) return roles;
+  }
+  return roles;
 }
 
 export async function seedGossip({
@@ -180,6 +204,7 @@ export async function refreshGossip({
   const tidbits = [];
   const rejected = [];
   const involved = new Set();
+  const usedTargetSets = new Set();
   const requireComplete = !pickRoles;
   const maxLinks = requireComplete ? Math.max(1, roster.length * 3) : cap;
   await store.reload();
@@ -190,14 +215,7 @@ export async function refreshGossip({
     state.tidbits = [];
   });
   for (let i = 0; i < maxLinks && (!requireComplete || involved.size < roster.length); i += 1) {
-    let roles = chooseRoles(roster);
-    const uncovered = roster.filter((persona) => !involved.has(persona.id));
-    if (roles && uncovered.length && roles.teller.id !== uncovered[0].id && !roles.hearers.some((p) => p.id === uncovered[0].id)) {
-      const hearers = roles.hearers.length >= 3
-        ? [...roles.hearers.slice(0, 2), uncovered[0]]
-        : [...roles.hearers, uncovered[0]];
-      roles = { ...roles, hearers };
-    }
+    const roles = pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, usedTargetSets);
     if (!roles) {
       rejected.push({ reason: 'no-roles' });
       break;
@@ -224,6 +242,7 @@ export async function refreshGossip({
     await store.mutate((state) => {
       state.tidbits.push(result.tidbit);
     });
+    usedTargetSets.add(rumorTargetSetKey(roles.targets));
     involved.add(roles.teller.id);
     roles.hearers.forEach((p) => involved.add(p.id));
   }

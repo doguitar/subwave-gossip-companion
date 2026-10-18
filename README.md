@@ -63,6 +63,8 @@ A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events 
 
 The CLI refresh replaces the current board with a new linked set of tidbits. On a successful refresh, gossip comments whose `tidbitId` is not on the new board are removed; a failed refresh leaves comments unchanged.
 
+During one refresh, each successfully appended rumor uses a distinct rumor-target persona set—the unordered persona IDs in `roles.targets`, including the empty set when there are zero targets. The refresh loop resamples role picks up to a small retry budget when a set would repeat; only accepted tidbits reserve a set, and deduplication is scoped to that batch only (not prior days or generated history).
+
 ```bash
 node src/cli.js refresh --base-dir .
 ```

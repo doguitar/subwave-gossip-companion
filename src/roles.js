@@ -43,6 +43,13 @@ export function hearerIdsForRoles(roles) {
   return roles.hearers.length ? roles.hearers.map((p) => p.id) : null;
 }
 
+/** Stable key for an unordered rumor-target persona set (empty set → dedicated empty key). */
+export function rumorTargetSetKey(targets) {
+  const ids = (targets || []).map((p) => p?.id).filter(Boolean).sort();
+  if (!ids.length) return '(empty)';
+  return ids.join(',');
+}
+
 export function personaSoul(persona) {
   return String(
     persona?.soul
