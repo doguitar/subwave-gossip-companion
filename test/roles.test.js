@@ -142,6 +142,19 @@ test('SEED_SYSTEM allows credible provenance while rumor-targets stay the subjec
   assert.match(SEED_SYSTEM, /20 to 240/);
 });
 
+test('SEED_SYSTEM allows in-beat target reactions and forbids second narrative beats', () => {
+  assert.match(SEED_SYSTEM, /immediate (?:physical|verbal )?reaction|same (?:wrong )?moment|cause-and-effect/i);
+  assert.match(SEED_SYSTEM, /second (?:narrative )?beat|and now|get this/i);
+  assert.doesNotMatch(SEED_SYSTEM, /Stop on that picture\.\s*The next word is not/i);
+});
+
+test('seedUserPrompt may nudge instant target reaction when rumor-targets are listed', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
+  assert.match(prompt, /instant|immediate/i);
+  assert.match(prompt, /reaction|one shared beat|same beat/i);
+});
+
 test('seedUserPrompt nudges private beats toward teller-plausible sourcing when targets are listed', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
   const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });

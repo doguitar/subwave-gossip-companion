@@ -8,7 +8,8 @@ Return one JSON object and nothing else:
 
 ## Rumor
 - One sentence, 20 to 240 characters. The sentence is a picture of what the subject did: one wrong, specific, physical detail.
-- Stop on that picture. The next word is not a consequence, a moral, or an explanation of why it matters.
+- That picture may include an immediate physical or verbal reaction from a named rumor-target in the same cause-and-effect moment (stunt and instant shriek, flinch, or blurt in one breath)—not delayed fallout, a moral, or an explanation of why it matters.
+- Do not add a second narrative beat. Pivot phrases like "and now" or "get this" that shift to unrelated aftermath belong in a different rumor, not this sentence.
 - Comic register for this rumor is supplied in the user message. Write in that register only for the quoted rumor. Earlier rumors in the user message are subject matter to avoid repeating, not a register to copy.
 - The quoted text is the rumor itself: keep the beat centered on the rumor-targets—their exact names and what they did. Do not make other personas the subject of the beat.
 - When the wrong beat is intimate, private, or otherwise not public hallway knowledge, the quote may include credible provenance in the same sentence (walked in on, was told by someone, overheard through the booth door, caught a glimpse, etc.) so a named teller could plausibly repeat it. Sourcing shares the one beat; it is not a second consequence, moral, or shift of focus off the targets.
