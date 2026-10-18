@@ -1,8 +1,32 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { waitForStationGossipTts, findStationGossipTts } from '../src/ttsWatch.js';
-import { appendGeneratedGossip, formatOnAirTidbit } from '../src/followup.js';
+import { appendGeneratedGossip, createFollowupWatcher, formatOnAirTidbit } from '../src/followup.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore } from './helpers.js';
+test('afterSkillFetch starts a new watch for each call even when another is in flight', async () => {
+  const { store } = await tempStore();
+  const watchStarts = [];
+  const log = {
+    info(msg) {
+      if (String(msg).includes('watching station-gossip')) watchStarts.push(msg);
+    },
+    warn() {},
+  };
+  const watcher = createFollowupWatcher({
+    store,
+    adapter: stubAdapter(),
+    config: { ttsTimeoutMs: 30, ttsPollMs: 1 },
+    log,
+  });
+  const sinceA = new Date('2026-09-19T16:24:20.000Z');
+  const sinceB = new Date('2026-09-19T16:24:25.000Z');
+  const first = watcher.afterSkillFetch({ show: 'Test Show', since: sinceA });
+  const second = watcher.afterSkillFetch({ show: 'Test Show', since: sinceB });
+  assert.notEqual(first, second);
+  await Promise.all([first, second]);
+  assert.equal(watchStarts.length, 2);
+});
+
 test('cohosted TTS expands all speakers from the matching station LLM call', async () => {
   const first = {
     kind: 'station-gossip-cohosted',

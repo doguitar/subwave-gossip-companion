@@ -173,8 +173,6 @@ function attributeVoicedTidbits(state, item, spoken, session, log) {
 }
 
 export function createFollowupWatcher({ store, adapter, config, log = console }) {
-  let inflight = null;
-
   async function run({ show, since }) {
     const timeoutMs = config.ttsTimeoutMs || 5 * 60 * 1000;
     const intervalMs = config.ttsPollMs || 3000;
@@ -217,14 +215,7 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
 
   return {
     afterSkillFetch({ show, since }) {
-      if (inflight) {
-        log.info?.('[gossip] tts watch already in flight');
-        return inflight;
-      }
-      inflight = run({ show, since }).finally(() => {
-        inflight = null;
-      });
-      return inflight;
+      return run({ show, since });
     },
   };
 }
