@@ -47,7 +47,7 @@ test('RSS includes known and broadcast-null items, excludes unknown, omits relat
   assert.doesNotMatch(xml, /tellerPersonaId|hearerPersonaIds/);
   assert.doesNotMatch(xml, />p_a<|>p_b</);
   const titles = [...xml.matchAll(/<item>[\s\S]*?<title>([^<]+)<\/title>/g)].map((m) => m[1]);
-  assert.deepEqual(titles, ['A only', 'B only', 'Broadcast item']);
+  assert.deepEqual(titles, ['Broadcast item', 'B only', 'A only']);
 });
 
 test('root page lists active tidbits in board order and escapes HTML', async () => {

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { matchVoicedTidbit } from './spoken.js';
 
 const COMMENT_LIMIT = 1000;
 
@@ -200,6 +201,33 @@ function compareShowKnown(a, b) {
   return 0;
 }
 
+function compareOldestFirst(a, b) {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  if (a.text !== b.text) return a.text < b.text ? -1 : 1;
+  return 0;
+}
+
+function sameRumorSubject(a, b) {
+  if (!a || !b || a.id === b.id) return Boolean(a && b && a.id === b.id);
+  return Boolean(matchVoicedTidbit([a], b.text) || matchVoicedTidbit([b], a.text));
+}
+
+function rumorSubjectGroups(tidbits) {
+  const groups = [];
+  for (const tidbit of tidbits) {
+    let group = groups.find((g) => g.some((t) => sameRumorSubject(t, tidbit)));
+    if (!group) {
+      group = [];
+      groups.push(group);
+    }
+    group.push(tidbit);
+  }
+  return groups.map((group) => {
+    const root = group.slice().sort(compareOldestFirst)[0];
+    return { representative: root, root, members: group };
+  });
+}
+
 export function tidbitsKnownBy(state, personaIds) {
   return knownTidbits(state, personaIds).slice().sort(compareShowKnown);
 }
@@ -211,26 +239,37 @@ function newestComment(comments, tidbit, show) {
   return matches.reduce((best, c) => (c.commentedAt > best.commentedAt ? c : best));
 }
 
-export function gossipForActor(state, personaIds, actorPersonaId, show) {
-  const known = knownTidbits(state, personaIds);
-  const actor = typeof actorPersonaId === 'string' ? actorPersonaId.trim() : '';
-  if (!actor) return known.slice().sort(compareShowKnown);
-  const comments = gossipComments(state);
-  const selected = known.filter((t) => {
-    const latest = newestComment(comments, t, show);
+function gossipRepresentatives(tidbits, actor, show, comments) {
+  const groups = rumorSubjectGroups(tidbits);
+  const selected = groups.filter(({ representative }) => {
+    const latest = newestComment(comments, representative, show);
     return !(latest && latest.actorPersonaId === actor);
   });
   const never = [];
   const prior = [];
-  for (const tidbit of selected) {
-    const latest = newestComment(comments, tidbit, show);
-    if (!latest) never.push(tidbit);
-    else prior.push({ tidbit, commentedAt: latest.commentedAt });
+  for (const group of selected) {
+    const latest = newestComment(comments, group.representative, show);
+    if (!latest) never.push(group);
+    else prior.push({ group, commentedAt: latest.commentedAt });
   }
-  never.sort(compareShowKnown);
+  never.sort((a, b) => compareShowKnown(a.representative, b.representative));
   prior.sort((a, b) => {
     if (a.commentedAt !== b.commentedAt) return a.commentedAt < b.commentedAt ? -1 : 1;
-    return compareShowKnown(a.tidbit, b.tidbit);
+    return compareShowKnown(a.group.representative, b.group.representative);
   });
-  return [...never, ...prior.map((row) => row.tidbit)];
+  return [...never, ...prior].map((row) => row.group || row).map((group) => group.representative);
+}
+
+export function gossipForActor(state, personaIds, actorPersonaId, show) {
+  const known = knownTidbits(state, personaIds);
+  const actor = typeof actorPersonaId === 'string' ? actorPersonaId.trim() : '';
+  const comments = gossipComments(state);
+  if (!actor) {
+    const groups = rumorSubjectGroups(known);
+    return groups
+      .slice()
+      .sort((a, b) => compareOldestFirst(a.root, b.root))
+      .map((group) => group.representative);
+  }
+  return gossipRepresentatives(known, actor, show, comments);
 }
