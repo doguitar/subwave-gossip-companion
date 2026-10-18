@@ -23,8 +23,12 @@ export function seedUserPrompt({ houseRules = '', day, roles, register, existing
   const hearers = roles.hearers.length
     ? roles.hearers.map(withSoul).join('\n')
     : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
+  const sharedBeat =
+    roles.targets.length === 2
+      ? ' The rumor MUST be one shared beat: both targets\' actions belong to the same moment (interaction, shared place, or clear cause-and-effect), not parallel unrelated vignettes.'
+      : '';
   const targets = roles.targets.length
-    ? `${roles.targets.map(withSoul).join('\n')} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}`
+    ? `${roles.targets.map(withSoul).join('\n')} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}.${sharedBeat}`
     : '(none — station-life only; name no persona)';
   const avoid = existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)';
   const evolution = previousTidbit

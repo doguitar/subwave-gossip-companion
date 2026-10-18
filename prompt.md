@@ -15,4 +15,5 @@ Return one JSON object and nothing else:
 ## Targets
 - With rumor-targets listed, the rumor is about those people and uses their exact display names.
 - Fit the targets' souls (voice, habits, obsessions) and the teller's soul (how they phrase hallway talk).
+- When exactly two rumor-targets are listed, both names belong in one shared beat: the same moment, scene, or clear cause-and-effect—not two unrelated solo actions stitched together.
 - With no rumor-targets, the rumor is station-life and names no persona.
