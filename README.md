@@ -28,8 +28,9 @@ The companion fetches the station's current context from the Subwave admin API o
 4. It reads the persona roster and each persona's `soul` from `values.personas`.
 5. Both are inserted into the user prompt sent to the configured LLM provider for every generated tidbit.
 6. For each rumor, the companion picks one comic register from a built-in catalog and adds a `Rumor register for this rumor` block to that user prompt. The system prompt defers register choice to this block.
+7. When rumor-targets are listed, the seed user prompt may nudge private or salacious beats toward phrasing the chosen teller could plausibly repeat. The external `prompt.md` rules allow credible provenance in the quoted rumor (for example overheard or walked in on) when the beat is not public hallway knowledge, without shifting focus off the targets.
 
-The request includes `DJ house rules`, `Station souls`, and (per rumor) the register block. Updating house rules or persona souls in Subwave changes subsequent generations; no code or prompt-file edit is required. Keep secrets and real private-person information out of the house rules and persona souls.
+The request includes `DJ house rules`, `Station souls`, and (per rumor) the register block. Rumor-target plausibility guidance applies only when targets are present. Updating house rules or persona souls in Subwave changes subsequent generations; no code or prompt-file edit is required. Keep secrets and real private-person information out of the house rules and persona souls.
 
 ## Local usage
 
