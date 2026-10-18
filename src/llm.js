@@ -45,12 +45,16 @@ Write this rumor in that comic register only.
     roles.targets.length
       ? ' If the beat is private or salacious, phrase it so this teller could plausibly repeat it to these hearers—credible sourcing in the quote is allowed when the system rules say so.'
       : '';
+  const reactionHint =
+    roles.targets.length
+      ? ' A rumor-target\'s instant reaction may complete the stunt when it is the same wrong moment—not a second rumor or moral.'
+      : '';
   return `Station day: ${day}
 
 Teller (already chosen): ${withSoul(roles.teller)}
 Hearers (already chosen): ${hearers}
 Rumor-targets (already chosen): ${targets}
-${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}
+${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}${reactionHint}
 
 ## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}

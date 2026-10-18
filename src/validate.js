@@ -1,5 +1,12 @@
 const SENSITIVE = /\b(ssn|social security|home address|passport|credit card)\b|\b\d{3}-\d{2}-\d{4}\b|\b\d{3}[-.]?\d{3}[-.]?\d{4}\b|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
+/** Pivot phrases that start a distinct second narrative beat (not stunt + immediate target reaction). */
+function hasSecondBeat(text) {
+  if (/\band (?:now|get this)\b/i.test(text)) return true;
+  if (/\bget this[,:]/i.test(text)) return true;
+  return false;
+}
+
 export function parseToldShape(text) {
   const m = String(text || '').trim().match(/^(.+?) (?:told|said on air)(?: (.+?))?, "([\s\S]*)"$/);
   if (!m) return null;
@@ -11,7 +18,7 @@ export function validateRumor(rumor, { targets = [], minLength = 20, maxLength =
   if (/^(?:string|text|rumor|example)$/i.test(text)) return { ok: false, reason: 'placeholder-text' };
   if (text.length < minLength) return { ok: false, reason: 'too-short' };
   if (text.length > maxLength) return { ok: false, reason: 'too-long' };
-  if (/\band (?:now|get this)\b/i.test(text)) return { ok: false, reason: 'second-beat' };
+  if (hasSecondBeat(text)) return { ok: false, reason: 'second-beat' };
   for (const target of targets) {
     if (target?.name && !text.toLowerCase().includes(String(target.name).toLowerCase())) {
       return { ok: false, reason: 'missing-target-name' };
