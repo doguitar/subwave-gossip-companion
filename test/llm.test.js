@@ -19,6 +19,7 @@ import {
 import { loadConfig } from '../src/config.js';
 import { createLog } from '../src/log.js';
 import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse } from '../src/llm.js';
+import { RUMOR_REGISTERS } from '../src/register.js';
 import { PERSONA_A, PERSONA_B } from './helpers.js';
 
 test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL', () => {
@@ -141,6 +142,7 @@ test('buildLlmRequest covers openai, google, and anthropic', () => {
 
 test('generateSeed posts OpenAI-compatible chat completions and parses rumor', async () => {
   const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
+  const register = RUMOR_REGISTERS.find((r) => r.id === 'deadpan-absurdity');
   const result = await generateSeed({
     config: {
       llmProvider: 'openai',
@@ -151,11 +153,14 @@ test('generateSeed posts OpenAI-compatible chat completions and parses rumor', a
     personas: [PERSONA_A, PERSONA_B],
     day: '2026-09-19',
     roles,
+    register,
     fetchImpl: async (url, opts) => {
       assert.equal(url, 'https://openai.example/v1/chat/completions');
       assert.equal(opts.headers.Authorization, 'Bearer sk-test');
       const body = JSON.parse(opts.body);
       assert.equal(body.model, 'gpt-4o-mini');
+      assert.match(body.messages[1].content, /deadpan absurdity/);
+      assert.match(body.messages[1].content, /Rumor register for this rumor/);
       return {
         ok: true,
         json: async () => ({

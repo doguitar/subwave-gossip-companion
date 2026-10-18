@@ -9,7 +9,7 @@ Return one JSON object and nothing else:
 ## Rumor
 - One sentence, 20 to 240 characters. The sentence is a picture of what the subject did: one wrong, specific, physical detail.
 - Stop on that picture. The next word is not a consequence, a moral, or an explanation of why it matters.
-- Register is a fresh draw every rumor: wacky station mishap, deadpan absurdity, petty feud, or bawdy. Pick whichever these souls make funniest this once. Bawdy is one of those draws. Earlier rumors are subject matter to avoid repeating, not a register to copy.
+- Comic register for this rumor is supplied in the user message. Write in that register only for the quoted rumor. Earlier rumors in the user message are subject matter to avoid repeating, not a register to copy.
 - The quoted text is the rumor itself, and it is only about the subject.
 
 ## Targets

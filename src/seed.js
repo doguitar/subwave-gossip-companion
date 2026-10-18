@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { rumorFromPayload } from './llm.js';
+import { pickRumorRegister } from './register.js';
 import { hearerIdsForRoles, pickGossipRoles, wrapRumor } from './roles.js';
 import {
   appendGeneratedGossipHistory,
@@ -33,7 +34,7 @@ function tidbitFromRoles(roles, rumor, createdAt) {
   };
 }
 
-async function generateOne({ generate, roster, houseRules = '', roles, day, existing, previousTidbit = '', createdAt, log, sleep = defaultSleep, minLength = 20 }) {
+async function generateOne({ generate, roster, houseRules = '', roles, register, day, existing, previousTidbit = '', createdAt, log, sleep = defaultSleep, minLength = 20 }) {
   const maxAttempts = 3;
   let lastReason = 'empty-text';
   let attempt = 0;
@@ -45,6 +46,7 @@ async function generateOne({ generate, roster, houseRules = '', roles, day, exis
         houseRules,
         day,
         roles,
+        register,
         existing,
         previousTidbit,
         attempt,
@@ -82,10 +84,12 @@ export async function seedGossip({
   log = console,
   timezone,
   pickRoles,
+  pickRegister,
   sleep,
   minLength = 20,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
+  const chooseRegister = pickRegister || pickRumorRegister;
   const [roster, houseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
@@ -108,11 +112,13 @@ export async function seedGossip({
       rejected += 1;
       continue;
     }
+    const register = chooseRegister();
     const result = await generateOne({
       generate,
       roster,
       houseRules,
       roles,
+      register,
       day,
       existing: [...retainedHistory, ...sessionTexts],
       createdAt,
@@ -155,10 +161,12 @@ export async function refreshGossip({
   log = console,
   timezone,
   pickRoles,
+  pickRegister,
   sleep,
   minLength = 20,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
+  const chooseRegister = pickRegister || pickRumorRegister;
   const [roster, houseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
@@ -194,11 +202,13 @@ export async function refreshGossip({
       rejected.push({ reason: 'no-roles' });
       break;
     }
+    const register = chooseRegister();
     const result = await generateOne({
       generate,
       roster,
       houseRules,
       roles,
+      register,
       day,
       existing: [...retainedHistory, ...tidbits.map((t) => t.text)],
       createdAt,

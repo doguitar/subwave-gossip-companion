@@ -19,7 +19,7 @@ function withSoul(persona) {
   return soul ? `${named}\nSoul: ${soul}` : named;
 }
 
-export function seedUserPrompt({ houseRules = '', day, roles, existing = [], previousTidbit = '' }) {
+export function seedUserPrompt({ houseRules = '', day, roles, register, existing = [], previousTidbit = '' }) {
   const hearers = roles.hearers.length
     ? roles.hearers.map(withSoul).join('\n')
     : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
@@ -30,13 +30,19 @@ export function seedUserPrompt({ houseRules = '', day, roles, existing = [], pre
   const evolution = previousTidbit
     ? `\n## Telephone-chain source\nPreceding telling:\n${previousTidbit}\nRetell this same rumor as one telephone-game step: keep its core subject and thread, and add one believable distortion or embellishment.\n`
     : '';
+  const registerBlock = register
+    ? `## Rumor register for this rumor
+${register.name} — ${register.guidance}
+Write this rumor in that comic register only.
+
+`
+    : '';
   return `Station day: ${day}
 
 Teller (already chosen): ${withSoul(roles.teller)}
 Hearers (already chosen): ${hearers}
 Rumor-targets (already chosen): ${targets}
-${evolution}
-Write one rumor in the teller's voice, about the rumor-targets when any are listed.
+${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.
 
 ## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}
@@ -205,6 +211,7 @@ export async function generateSeed({
   houseRules,
   day,
   roles,
+  register,
   existing = [],
   previousTidbit = '',
   fetchImpl = fetch,
@@ -221,7 +228,7 @@ export async function generateSeed({
     throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to generate gossip'), { code: 'CONFIG' });
   }
 
-  const user = seedUserPrompt({ houseRules, day, roles, existing, previousTidbit });
+  const user = seedUserPrompt({ houseRules, day, roles, register, existing, previousTidbit });
   log?.info?.(`[gossip] LLM prompt system:\n${systemPrompt}\n[gossip] LLM prompt user:\n${user}`);
   const request = buildLlmRequest({
     provider,
