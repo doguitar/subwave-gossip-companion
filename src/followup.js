@@ -1,4 +1,8 @@
 import { readFile } from 'node:fs/promises';
+import { listLlmCallLogSegments } from './callLog.js';
+import { currentTidbits, legacyTidbitId, recordGossipComment, tidbitKey } from './store.js';
+import { matchVoicedTidbit } from './spoken.js';
+import { waitForStationGossipTts } from './ttsWatch.js';
 
 function responseStrings(value, out = []) {
   if (typeof value === 'string') out.push(value.replace(/\s+/g, ' ').trim());
@@ -7,21 +11,30 @@ function responseStrings(value, out = []) {
   return out;
 }
 
-async function recoverFullSpokenText(spoken, logPath, log = console) {
+export async function recoverFullSpokenText(spoken, logPath, log = console) {
   const short = String(spoken?.text || '').replace(/\s+/g, ' ').trim();
   if (!short || !logPath) return spoken;
   try {
-    const lines = (await readFile(logPath, 'utf8')).trim().split(/\r?\n/).reverse();
-    for (const line of lines) {
-      let entry;
-      try { entry = JSON.parse(line); } catch { continue; }
-      const candidates = responseStrings(entry.response).filter((text) => text.length > 20);
-      const full = candidates
-        .filter((text) => short.includes(text) || text.includes(short))
-        .sort((a, b) => b.length - a.length)[0];
-      if (full && full.length > short.length) {
-        log.info?.('[gossip] recovered full spoken text from LLM call log');
-        return { ...spoken, text: full };
+    for (const segmentPath of await listLlmCallLogSegments(logPath)) {
+      let raw;
+      try {
+        raw = await readFile(segmentPath, 'utf8');
+      } catch (err) {
+        if (err.code === 'ENOENT') continue;
+        throw err;
+      }
+      const lines = raw.trim().split(/\r?\n/).reverse();
+      for (const line of lines) {
+        let entry;
+        try { entry = JSON.parse(line); } catch { continue; }
+        const candidates = responseStrings(entry.response).filter((text) => text.length > 20);
+        const full = candidates
+          .filter((text) => short.includes(text) || text.includes(short))
+          .sort((a, b) => b.length - a.length)[0];
+        if (full && full.length > short.length) {
+          log.info?.('[gossip] recovered full spoken text from LLM call log');
+          return { ...spoken, text: full };
+        }
       }
     }
   } catch (err) {
@@ -29,9 +42,6 @@ async function recoverFullSpokenText(spoken, logPath, log = console) {
   }
   return spoken;
 }
-import { currentTidbits, legacyTidbitId, recordGossipComment, tidbitKey } from './store.js';
-import { matchVoicedTidbit } from './spoken.js';
-import { waitForStationGossipTts } from './ttsWatch.js';
 
 function messageTime(msg) {
   const raw = msg?.meta?.airedAt || msg?.t || 0;

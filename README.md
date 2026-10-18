@@ -16,7 +16,7 @@ PROVIDER_MODEL=gpt-4o-mini
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`).
+`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`). The active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`) rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
 
 ## Station house rules and persona context
 

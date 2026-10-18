@@ -1,8 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
+import {
+  appendLlmCall,
+  LLM_CALL_LOG_MAX_BYTES,
+  LLM_CALL_LOG_RETENTION_MS,
+} from '../src/callLog.js';
 import { loadConfig } from '../src/config.js';
 import { createLog } from '../src/log.js';
 import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse } from '../src/llm.js';
@@ -172,4 +185,35 @@ test('parseLlmResponse reads Google and Anthropic payloads', () => {
 test('extractJsonObject keeps the first object when Gemma trails extra JSON', () => {
   const payload = extractJsonObject('{"rumor":"word is the kettle hissed twice"}\n{"note":"ignored"}');
   assert.equal(payload.rumor, 'word is the kettle hissed twice');
+});
+
+test('appendLlmCall rolls the active log when the next line would exceed 512 KiB', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-log-'));
+  const logPath = path.join(dir, 'llm-calls.jsonl');
+  await writeFile(logPath, 'x'.repeat(LLM_CALL_LOG_MAX_BYTES), 'utf8');
+  const record = { at: '2026-10-17T00:00:00.000Z', response: { text: 'rolled' } };
+  await appendLlmCall(logPath, record);
+
+  const active = await readFile(logPath, 'utf8');
+  assert.equal(active, `${JSON.stringify(record)}\n`);
+  assert.ok((await stat(logPath)).size < LLM_CALL_LOG_MAX_BYTES);
+
+  const rolled = (await readdir(dir)).filter((name) => /^llm-calls\.\d+\.jsonl$/.test(name));
+  assert.equal(rolled.length, 1);
+  assert.equal((await stat(path.join(dir, rolled[0]))).size, LLM_CALL_LOG_MAX_BYTES);
+});
+
+test('appendLlmCall deletes rolled segments older than seven days', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-log-'));
+  const logPath = path.join(dir, 'llm-calls.jsonl');
+  const stalePath = path.join(dir, 'llm-calls.1111111111111.jsonl');
+  await writeFile(stalePath, '{"at":"old"}\n', 'utf8');
+  const eightDaysAgo = new Date(Date.now() - LLM_CALL_LOG_RETENTION_MS - 24 * 60 * 60 * 1000);
+  await utimes(stalePath, eightDaysAgo, eightDaysAgo);
+
+  await appendLlmCall(logPath, { at: '2026-10-17T00:00:00.000Z', response: { text: 'fresh' } });
+
+  const names = await readdir(dir);
+  assert.equal(names.includes('llm-calls.1111111111111.jsonl'), false);
+  assert.equal(names.includes('llm-calls.jsonl'), true);
 });
