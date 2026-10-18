@@ -16,7 +16,7 @@ PROVIDER_MODEL=gpt-4o-mini
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, and call-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory.
+`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`).
 
 ## Station house rules and persona context
 
@@ -95,7 +95,7 @@ docker run --rm -p 8787:8787 \
   subwave-gossip-companion
 ```
 
-Put `prompt.md` in the mounted workspace, or set `GOSSIP_PROMPT_PATH` to another mounted path. The container sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain the gossip state and LLM call log.
+Put `prompt.md` in the mounted workspace, or set `GOSSIP_PROMPT_PATH` to another mounted path. The container sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, the operational log, and the LLM call log.
 
 ## GitHub Container Registry
 
