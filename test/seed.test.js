@@ -157,16 +157,15 @@ test('seed retries rate limits indefinitely and preserves earlier tidbits', asyn
 test('default refresh chains until every persona participates', async () => {
   const { store } = await tempStore();
   const adapter = stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] });
-  let priorHearers = [];
   const seen = new Set();
+  const rumorTargets = new Set();
   const result = await refreshGossip({
     store,
     adapter,
     generate: async ({ roles }) => {
-      assert.equal(roles.hearers.some((p) => priorHearers.includes(p.id)), false);
-      priorHearers = roles.hearers.map((p) => p.id);
       seen.add(roles.teller.id);
       roles.hearers.forEach((p) => seen.add(p.id));
+      roles.targets.forEach((p) => rumorTargets.add(p.id));
       const targets = roles.targets.map((p) => p.name).join(' ');
       return { rumor: `unconfirmed station kettle remembers ${targets || 'the cart'} tonight` };
     },
@@ -177,6 +176,38 @@ test('default refresh chains until every persona participates', async () => {
   });
   assert.ok(result.refreshed >= 1);
   assert.deepEqual([...seen].sort(), ['p_a', 'p_b', 'p_c']);
+  assert.deepEqual([...rumorTargets].sort(), ['p_a', 'p_b', 'p_c']);
+});
+
+test('default refresh fails when rumor targets never cover the roster', async () => {
+  const { store } = await tempStore();
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A] }),
+      generate: async () => ({ rumor: 'unconfirmed the booth kettle whistled through the legal ID twice' }),
+      cap: 1,
+      historyGenerations: 7,
+      timezone: 'UTC',
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.status === 502 && err.targetCovered === 0 && err.roster === 1 && err.targetIncomplete === true,
+  );
+});
+
+test('injected pickRoles refresh does not require rumor-target coverage', async () => {
+  const { store } = await tempStore();
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async () => ({ rumor: 'unconfirmed the booth kettle whistled through the legal ID' }),
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 1);
 });
 
 test('seed prompts with generated history only and appends a new batch', async () => {
