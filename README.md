@@ -49,7 +49,7 @@ The HTTP service listens on `GOSSIP_HOST:GOSSIP_PORT` and exposes `/gossip.rss` 
 curl "http://127.0.0.1:8080/gossip.rss?show=Island%20Time&actor=p_79eaff"
 ```
 
-With `actor`, the feed includes every known rumor except one whose newest comment on that show was made by the requesting actor. If that exclusion removes the only item, the feed is empty. Rumors nobody has commented on come first; previously commented rumors follow, oldest comment first. Without `actor`, the feed keeps show-known order and records nothing. An unknown show returns an empty feed. A missing `show` returns 400.
+With `actor`, the feed lists one item per rumor subject (escalation chains count as one subject). It includes every subject except one whose newest comment on that show was made by the requesting actor on that subject's root tidbit. If that exclusion removes the only subject, the feed is empty. Subjects nobody has commented on come first (newest root first among them); previously commented subjects follow, oldest comment first. Without `actor`, the feed lists one item per subject ordered by root tidbit age (oldest subject first) so a fresh escalation tidbit does not jump ahead of other subjects. An unknown show returns an empty feed. A missing `show` returns 400.
 
 Set `GOSSIP_FEED_BASE_URL` to the public URL the station skill uses to fetch gossip (see `.env.example`). When it is set, RSS channel and item `<link>` values use that base with the same `show` and optional `actor` query parameters as the request. When it is unset, links use the incoming request URL.
 

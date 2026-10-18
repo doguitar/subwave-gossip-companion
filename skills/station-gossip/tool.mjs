@@ -121,6 +121,9 @@ export default async function (ctx = {}, _state, services = {}, config = {}) {
     return { available: false };
   }
   const actor = resolveActor(ctx, services);
+  if (!actor) {
+    log?.(`[station-gossip] no actor persona id in context keys=${Object.keys(ctx || {}).join(',')}; feed will not rotate per character`);
+  }
   const url = feedUrl(baseUrl, show, actor);
   log?.(`[station-gossip] fetching ${url}`);
   try {
