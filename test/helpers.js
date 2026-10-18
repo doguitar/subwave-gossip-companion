@@ -31,7 +31,11 @@ export function stubAdapter({
     },
     async getShowPersonas(title) {
       const wanted = String(title || '').trim();
-      if (failSchedule) return [];
+      if (failSchedule) {
+        const err = new Error('schedule down');
+        err.status = 503;
+        throw err;
+      }
       if (wanted === 'Empty Show') return [];
       if (wanted !== show) return [];
       return personas;

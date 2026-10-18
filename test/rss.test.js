@@ -64,6 +64,19 @@ test('root page lists active tidbits in board order and escapes HTML', async () 
   assert.match(html, /<ol><li>&lt;first&gt;<\/li><li>second &amp; more<\/li><\/ol>/);
 });
 
+test('schedule unavailable returns JSON error instead of empty RSS', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Should not leak' })],
+  });
+  const base = await start(store, stubAdapter({ failSchedule: true }));
+  const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  assert.ok(res.status >= 400);
+  const body = await res.text();
+  assert.doesNotMatch(body, /<rss/i);
+  const json = JSON.parse(body);
+  assert.match(json.error, /schedule down/i);
+});
+
 test('missing show is 400; unknown and empty-persona shows are empty 200', async () => {
   const { store } = await tempStore({
     tidbits: [tidbit({ text: 'Secret global item' })],

@@ -117,27 +117,29 @@ export class SubwaveAdapter {
   async getShowPersonas(showTitle) {
     const wanted = String(showTitle || '').trim();
     if (!wanted) return [];
+    let schedule;
     try {
-      const schedule = await this.getSchedule();
-      const fromSchedule = personasForShow(schedule, wanted, this.log);
-      if (fromSchedule.matched) return fromSchedule.personas;
-      try {
-        const session = await this.getSession();
-        const sessionTitle = String(session?.session?.show || session?.show || '').trim();
-        if (sessionTitle === wanted) {
-          const retry = personasForShow(schedule, sessionTitle, this.log);
-          if (retry.matched) return retry.personas;
-          return personasFromSession(session);
-        }
-      } catch (err) {
-        this.log.warn?.(`[gossip] session fallback failed: ${err.message}`);
-      }
-      this.log.warn?.(`[gossip] show not found: ${wanted}`);
-      return [];
+      schedule = await this.getSchedule();
     } catch (err) {
-      this.log.warn?.(`[gossip] getShowPersonas failed: ${err.message}`);
-      return [];
+      this.log.warn?.(`[gossip] schedule load failed: ${err.message}`);
+      if (!err.status || !Number.isInteger(err.status)) err.status = 503;
+      throw err;
     }
+    const fromSchedule = personasForShow(schedule, wanted, this.log);
+    if (fromSchedule.matched) return fromSchedule.personas;
+    try {
+      const session = await this.getSession();
+      const sessionTitle = String(session?.session?.show || session?.show || '').trim();
+      if (sessionTitle === wanted) {
+        const retry = personasForShow(schedule, sessionTitle, this.log);
+        if (retry.matched) return retry.personas;
+        return personasFromSession(session);
+      }
+    } catch (err) {
+      this.log.warn?.(`[gossip] session fallback failed: ${err.message}`);
+    }
+    this.log.warn?.(`[gossip] show not found: ${wanted}`);
+    return [];
   }
 }
 

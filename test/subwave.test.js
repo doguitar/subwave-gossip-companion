@@ -27,6 +27,34 @@ test('getShowPersonas exact-trims title and dedupes persona ids', async () => {
   assert.deepEqual(await adapter.getShowPersonas('test show'), []);
 });
 
+test('getShowPersonas rethrows when schedule HTTP fails', async () => {
+  const adapter = new SubwaveAdapter({
+    apiUrl: 'http://subwave.test',
+    apiToken: 'token',
+    fetchImpl: async () => ({ ok: false, status: 502 }),
+    log: { warn() {} },
+  });
+  await assert.rejects(adapter.getShowPersonas('Test Show'), (err) => {
+    assert.equal(err.status, 502);
+    return true;
+  });
+});
+
+test('getShowPersonas uses 503 when schedule error has no HTTP status', async () => {
+  const adapter = new SubwaveAdapter({
+    apiUrl: 'http://subwave.test',
+    apiToken: 'token',
+    fetchImpl: async () => {
+      throw new Error('network down');
+    },
+    log: { warn() {} },
+  });
+  await assert.rejects(adapter.getShowPersonas('Test Show'), (err) => {
+    assert.equal(err.status, 503);
+    return true;
+  });
+});
+
 test('authorizationHeader is HTTP Basic of user:pass, not plaintext', () => {
   const encoded = encodeHttpAuth('admin', 'secret-pass');
   assert.equal(authorizationHeader({ apiUser: 'admin', apiPassword: 'secret-pass' }), `Basic ${encoded}`);
