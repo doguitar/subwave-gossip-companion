@@ -89,6 +89,7 @@ export function loadConfig(env = process.env) {
   const llmUrl = openaiBaseUrl;
   const llmFixturePath = env.GOSSIP_LLM_FIXTURE ? resolveBase(env.GOSSIP_LLM_FIXTURE, '') : '';
   const llmCallLogPath = resolveBase(env.GOSSIP_LLM_CALL_LOG, path.join('logs', 'llm-calls.jsonl'));
+  const operationalLogPath = resolveBase(env.GOSSIP_OPERATIONAL_LOG, path.join('logs', 'gossip.log'));
   const promptPath = resolveBase(env.GOSSIP_PROMPT_PATH, 'prompt.md');
   let systemPrompt = '';
   try {
@@ -126,6 +127,7 @@ export function loadConfig(env = process.env) {
     llmUrl,
     llmFixturePath,
     llmCallLogPath,
+    operationalLogPath,
     refreshCount: Number.isInteger(refreshCount) ? refreshCount : 1,
     ttsTimeoutMs: Number.isFinite(ttsTimeoutMs) && ttsTimeoutMs > 0 ? ttsTimeoutMs : 5 * 60 * 1000,
     minRumorLength: Number.isInteger(minRumorLength) && minRumorLength > 0 ? minRumorLength : 20,
