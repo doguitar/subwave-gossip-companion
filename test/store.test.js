@@ -9,6 +9,7 @@ import {
   gossipForActor,
   legacyTidbitId,
   normalizeState,
+  pruneGossipCommentsToTidbits,
   recordGossipComment,
   tidbitsKnownBy,
 } from '../src/store.js';
@@ -71,8 +72,66 @@ test('null hearers are visible to every persona; specific hearers are not', () =
   assert.deepEqual(b, ['On air']);
 });
 
+test('pruneGossipCommentsToTidbits drops orphans and keeps valid comments in order', () => {
+  const board = [
+    tidbit({ id: 'on-board-a', text: 'A' }),
+    tidbit({ id: 'on-board-b', text: 'B' }),
+  ];
+  const comments = [
+    { id: 'c1', tidbitId: 'stale', actorPersonaId: 'p_a', commentedAt: '2026-09-01T00:00:00.000Z' },
+    { id: 'c2', tidbitId: 'on-board-a', actorPersonaId: 'p_b', show: 'Night', commentedAt: '2026-09-02T00:00:00.000Z' },
+    { id: 'c3', tidbitId: 'gone', actorPersonaId: 'p_a', commentedAt: '2026-09-03T00:00:00.000Z' },
+    { id: 'c4', tidbitId: 'on-board-b', actorPersonaId: 'p_c', commentedAt: '2026-09-04T00:00:00.000Z' },
+  ];
+  assert.deepEqual(pruneGossipCommentsToTidbits(board, comments), [
+    {
+      id: 'c2',
+      tidbitId: 'on-board-a',
+      actorPersonaId: 'p_b',
+      show: 'Night',
+      commentedAt: '2026-09-02T00:00:00.000Z',
+    },
+    {
+      id: 'c4',
+      tidbitId: 'on-board-b',
+      actorPersonaId: 'p_c',
+      show: '',
+      commentedAt: '2026-09-04T00:00:00.000Z',
+    },
+  ]);
+  assert.deepEqual(pruneGossipCommentsToTidbits(board, []), []);
+  assert.deepEqual(pruneGossipCommentsToTidbits(board, comments.slice(0, 3)), [
+    {
+      id: 'c2',
+      tidbitId: 'on-board-a',
+      actorPersonaId: 'p_b',
+      show: 'Night',
+      commentedAt: '2026-09-02T00:00:00.000Z',
+    },
+  ]);
+});
+
+test('pruneGossipCommentsToTidbits enforces the comment cap after filtering orphans', () => {
+  const board = [tidbit({ id: 'live' })];
+  const comments = [];
+  for (let i = 0; i < 1005; i += 1) {
+    comments.push({
+      id: `c${String(i).padStart(4, '0')}`,
+      tidbitId: i < 5 ? 'orphan' : 'live',
+      actorPersonaId: 'p_a',
+      commentedAt: `2026-01-01T00:00:${String(i).padStart(4, '0')}Z`,
+    });
+  }
+  const kept = pruneGossipCommentsToTidbits(board, comments);
+  assert.equal(kept.length, 1000);
+  assert.equal(kept[0].id, 'c0005');
+  assert.equal(kept.at(-1).id, 'c1004');
+  assert.ok(kept.every((c) => c.tidbitId === 'live'));
+});
+
 test('comment records normalize and keep the newest 1000', () => {
   const state = normalizeState({
+    tidbits: [tidbit({ id: 't1', text: 'rumor on board' })],
     gossipComments: [
       { tidbitId: 't1', actorPersonaId: 'p_a', commentedAt: '2026-09-01T00:00:00.000Z' },
       { id: 'keep', tidbitId: 't1', actorPersonaId: 'p_b', show: 'Night', commentedAt: '2026-09-02T00:00:00.000Z', extra: 'no' },

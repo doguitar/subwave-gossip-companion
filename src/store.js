@@ -57,6 +57,14 @@ function normalizeComment(raw) {
   return { id, tidbitId, actorPersonaId, show, commentedAt };
 }
 
+export function pruneGossipCommentsToTidbits(tidbits, rawComments) {
+  const boardIds = new Set(
+    (Array.isArray(tidbits) ? tidbits : []).map((t) => normalizeTidbit(t).id),
+  );
+  const comments = gossipComments({ gossipComments: rawComments });
+  return comments.filter((c) => boardIds.has(c.tidbitId)).slice(-COMMENT_LIMIT);
+}
+
 export function gossipComments(state) {
   const comments = (Array.isArray(state?.gossipComments) ? state.gossipComments : [])
     .map(normalizeComment)
