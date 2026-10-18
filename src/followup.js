@@ -1,5 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { listLlmCallLogSegments } from './callLog.js';
+import { currentTidbits, legacyTidbitId, recordGossipComment, tidbitKey } from './store.js';
+import { matchVoicedTidbit } from './spoken.js';
+import { waitForStationGossipTts } from './ttsWatch.js';
 
 function responseStrings(value, out = []) {
   if (typeof value === 'string') out.push(value.replace(/\s+/g, ' ').trim());
@@ -39,9 +42,6 @@ export async function recoverFullSpokenText(spoken, logPath, log = console) {
   }
   return spoken;
 }
-import { currentTidbits, legacyTidbitId, recordGossipComment, tidbitKey } from './store.js';
-import { matchVoicedTidbit } from './spoken.js';
-import { waitForStationGossipTts } from './ttsWatch.js';
 
 function messageTime(msg) {
   const raw = msg?.meta?.airedAt || msg?.t || 0;
@@ -183,8 +183,6 @@ function attributeVoicedTidbits(state, item, spoken, session, log) {
 }
 
 export function createFollowupWatcher({ store, adapter, config, log = console }) {
-  let inflight = null;
-
   async function run({ show, since }) {
     const timeoutMs = config.ttsTimeoutMs || 5 * 60 * 1000;
     const intervalMs = config.ttsPollMs || 3000;
@@ -227,14 +225,7 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
 
   return {
     afterSkillFetch({ show, since }) {
-      if (inflight) {
-        log.info?.('[gossip] tts watch already in flight');
-        return inflight;
-      }
-      inflight = run({ show, since }).finally(() => {
-        inflight = null;
-      });
-      return inflight;
+      return run({ show, since });
     },
   };
 }

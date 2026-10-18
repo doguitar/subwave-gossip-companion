@@ -128,6 +128,87 @@ test('actor feed excludes the newest commentor and restores the rumor after some
   assert.deepEqual(gossipForActor(state, ids, 'persona-a', 'Test Show').map((t) => t.id), ['fresh', 'older']);
 });
 
+test('actor feed rotates to another subject after escalating one rumor', () => {
+  const rumorA = tidbit({
+    id: 'rumor-a',
+    text: 'Word is the cart machine threw itself through the booth wall behind Alpha.',
+    createdAt: '2026-09-19T01:00:00.000Z',
+    hearerPersonaIds: null,
+  });
+  const rumorB = tidbit({
+    id: 'rumor-b',
+    text: 'Someone swears the neon sign in the lobby blinked a secret code twice at midnight.',
+    createdAt: '2026-09-19T02:00:00.000Z',
+    hearerPersonaIds: null,
+  });
+  const rumorC = tidbit({
+    id: 'rumor-c',
+    text: 'Unconfirmed the overnight engineer left a rubber duck on the transmitter.',
+    createdAt: '2026-09-19T03:00:00.000Z',
+    hearerPersonaIds: null,
+  });
+  const state = normalizeState({ tidbits: [rumorA, rumorB, rumorC] });
+  const ids = [PERSONA_A.id, PERSONA_B.id];
+  const show = 'Test Show';
+
+  assert.equal(gossipForActor(state, ids, 'persona-a', show).map((t) => t.id)[0], 'rumor-c');
+
+  recordGossipComment(state, {
+    tidbitId: 'rumor-a',
+    actorPersonaId: 'persona-a',
+    show,
+    commentedAt: '2026-09-19T04:00:00.000Z',
+  });
+  const escalationA = tidbit({
+    id: 'rumor-a-esc',
+    text: 'Alpha said on air, "Word is the cart machine threw itself through the booth wall and took the transmitter with it."',
+    createdAt: '2026-09-19T04:30:00.000Z',
+    hearerPersonaIds: null,
+    tellerPersonaId: 'persona-a',
+  });
+  state.tidbits.push(escalationA);
+  recordGossipComment(state, {
+    tidbitId: 'rumor-a-esc',
+    actorPersonaId: 'persona-a',
+    show,
+    commentedAt: '2026-09-19T04:30:00.000Z',
+  });
+
+  const next = gossipForActor(state, ids, 'persona-a', show).map((t) => t.id);
+  assert.ok(next[0] === 'rumor-b' || next[0] === 'rumor-c', `expected B or C first, got ${next[0]}`);
+  assert.ok(!next.includes('rumor-a'));
+  assert.ok(!next.includes('rumor-a-esc'));
+});
+
+test('missing actor feed surfaces each subject once and does not pin escalations at the front', () => {
+  const rumorA = tidbit({
+    id: 'rumor-a',
+    text: 'Word is the cart machine threw itself through the booth wall behind Alpha.',
+    createdAt: '2026-09-19T01:00:00.000Z',
+    hearerPersonaIds: null,
+  });
+  const rumorB = tidbit({
+    id: 'rumor-b',
+    text: 'Someone swears the neon sign in the lobby blinked a secret code twice at midnight.',
+    createdAt: '2026-09-19T02:00:00.000Z',
+    hearerPersonaIds: null,
+  });
+  const state = normalizeState({ tidbits: [rumorA, rumorB] });
+  const ids = [PERSONA_A.id];
+
+  const escalationA = tidbit({
+    id: 'rumor-a-esc',
+    text: 'Alpha said on air, "Word is the cart machine threw itself through the booth wall and took the transmitter with it."',
+    createdAt: '2026-09-19T05:00:00.000Z',
+    hearerPersonaIds: null,
+  });
+  state.tidbits.push(escalationA);
+
+  const feed = gossipForActor(state, ids, '', 'Test Show').map((t) => t.id);
+  assert.deepEqual(feed, ['rumor-a', 'rumor-b']);
+  assert.equal(feed[0], 'rumor-a');
+});
+
 test('excluding the only known rumor yields an empty list; a missing actor keeps show order', () => {
   const only = tidbit({ id: 'only', text: 'Only rumor', hearerPersonaIds: null, createdAt: '2026-09-19T02:00:00.000Z' });
   const state = normalizeState({ tidbits: [only] });
@@ -138,8 +219,6 @@ test('excluding the only known rumor yields an empty list; a missing actor keeps
     commentedAt: '2026-09-19T06:00:00.000Z',
   });
   assert.deepEqual(gossipForActor(state, [PERSONA_A.id], 'persona-a', 'Test Show'), []);
-  assert.deepEqual(
-    gossipForActor(state, [PERSONA_A.id], '', 'Test Show').map((t) => t.text),
-    tidbitsKnownBy(state, [PERSONA_A.id]).map((t) => t.text),
-  );
+  const noActor = gossipForActor(state, [PERSONA_A.id], '', 'Test Show').map((t) => t.text);
+  assert.deepEqual(noActor, ['Only rumor']);
 });

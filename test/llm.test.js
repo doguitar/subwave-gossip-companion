@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -7,8 +8,8 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import {
   appendLlmCall,
@@ -16,6 +17,7 @@ import {
   LLM_CALL_LOG_RETENTION_MS,
 } from '../src/callLog.js';
 import { loadConfig } from '../src/config.js';
+import { createLog } from '../src/log.js';
 import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse } from '../src/llm.js';
 import { PERSONA_A, PERSONA_B } from './helpers.js';
 
@@ -36,6 +38,55 @@ test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL
   assert.equal(config.llmApiKey, 'sk-ant-test');
   assert.equal(config.llmModel, 'claude-sonnet-4-5');
   assert.equal(config.statePath, path.join(config.baseDir, 'data', 'gossip-state.json'));
+});
+
+test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
+  const { config, errors } = loadConfig({
+    GOSSIP_BASE_DIR: '/workspace',
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+  });
+  assert.deepEqual(errors, []);
+  assert.equal(config.operationalLogPath, path.join(config.baseDir, 'logs', 'gossip.log'));
+
+  const custom = loadConfig({
+    GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_OPERATIONAL_LOG: 'var/run/gossip.log',
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+  }).config;
+  assert.equal(custom.operationalLogPath, path.join(custom.baseDir, 'var', 'run', 'gossip.log'));
+});
+
+test('createLog tees messages to console and the operational log file', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'gossip-log-'));
+  const logPath = path.join(base, 'logs', 'gossip.log');
+  const lines = [];
+  const log = createLog(logPath, {
+    log: (m) => lines.push(m),
+    warn: (m) => lines.push(m),
+    error: (m) => lines.push(m),
+  });
+  log.info('[gossip] storage ready');
+  log.warn('[gossip] Subwave API check failed: offline');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const file = await readFile(logPath, 'utf8');
+  assert.deepEqual(lines, [
+    '[gossip] storage ready',
+    '[gossip] Subwave API check failed: offline',
+  ]);
+  assert.equal(file, '[gossip] storage ready\n[gossip] Subwave API check failed: offline\n');
+});
+
+test('createLog does not throw when the operational log path is not writable', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'gossip-log-ro-'));
+  const blocked = path.join(base, 'blocked');
+  await mkdir(blocked, { recursive: true });
+  const log = createLog(blocked);
+  log.info('[gossip] still works');
+  await new Promise((resolve) => setTimeout(resolve, 30));
 });
 
 test('buildLlmRequest covers openai, google, and anthropic', () => {

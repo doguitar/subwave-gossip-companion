@@ -16,7 +16,7 @@ PROVIDER_MODEL=gpt-4o-mini
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, and call-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. The active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`) rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
+`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`). The active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`) rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
 
 ## Station house rules and persona context
 
@@ -49,7 +49,9 @@ The HTTP service listens on `GOSSIP_HOST:GOSSIP_PORT` and exposes `/gossip.rss` 
 curl "http://127.0.0.1:8080/gossip.rss?show=Island%20Time&actor=p_79eaff"
 ```
 
-With `actor`, the feed includes every known rumor except one whose newest comment on that show was made by the requesting actor. If that exclusion removes the only item, the feed is empty. Rumors nobody has commented on come first; previously commented rumors follow, oldest comment first. Without `actor`, the feed keeps show-known order and records nothing. An unknown show returns an empty feed. A missing `show` returns 400.
+With `actor`, the feed lists one item per rumor subject (escalation chains count as one subject). It includes every subject except one whose newest comment on that show was made by the requesting actor on that subject's root tidbit. If that exclusion removes the only subject, the feed is empty. Subjects nobody has commented on come first (newest root first among them); previously commented subjects follow, oldest comment first. Without `actor`, the feed lists one item per subject ordered by root tidbit age (oldest subject first) so a fresh escalation tidbit does not jump ahead of other subjects. An unknown show returns an empty feed. A missing `show` returns 400.
+
+Set `GOSSIP_FEED_BASE_URL` to the public URL the station skill uses to fetch gossip (see `.env.example`). When it is set, RSS channel and item `<link>` values use that base with the same `show` and optional `actor` query parameters as the request. When it is unset, links use the incoming request URL.
 
 Item text stays the plain rumor. Stable ids are the RSS GUIDs. When the teller is on the requested show, the item also includes an escaped `<gossipTeller>` display name. Hearer identities and persona ids are not emitted.
 
@@ -95,7 +97,7 @@ docker run --rm -p 8787:8787 \
   subwave-gossip-companion
 ```
 
-Put `prompt.md` in the mounted workspace, or set `GOSSIP_PROMPT_PATH` to another mounted path. The container sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain the gossip state and LLM call log.
+Put `prompt.md` in the mounted workspace, or set `GOSSIP_PROMPT_PATH` to another mounted path. The container sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, the operational log, and the LLM call log.
 
 ## GitHub Container Registry
 

@@ -6,8 +6,8 @@ import { PERSONA_A, PERSONA_B, stubAdapter, tempStore, tidbit } from './helpers.
 
 const servers = [];
 
-async function start(store, adapter) {
-  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '' };
+async function start(store, adapter, feedBaseUrl = '') {
+  const config = { host: '127.0.0.1', port: 0, feedBaseUrl };
   const server = createServer({ store, adapter, config, log: { warn() {}, error() {}, info() {} }, watcher: { afterSkillFetch() {} } });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   servers.push(server);
@@ -47,7 +47,7 @@ test('RSS includes known and broadcast-null items, excludes unknown, omits relat
   assert.doesNotMatch(xml, /tellerPersonaId|hearerPersonaIds/);
   assert.doesNotMatch(xml, />p_a<|>p_b</);
   const titles = [...xml.matchAll(/<item>[\s\S]*?<title>([^<]+)<\/title>/g)].map((m) => m[1]);
-  assert.deepEqual(titles, ['A only', 'B only', 'Broadcast item']);
+  assert.deepEqual(titles, ['Broadcast item', 'B only', 'A only']);
 });
 
 test('root page lists active tidbits in board order and escapes HTML', async () => {
@@ -106,6 +106,95 @@ test('RSS reloads the JSON file on every request', async () => {
   assert.doesNotMatch(third, /<item>/);
 });
 
+test('RSS without actor does not start TTS follow-up', async () => {
+  let followCalls = 0;
+  const watcher = {
+    afterSkillFetch() {
+      followCalls += 1;
+    },
+  };
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Feed item', hearerPersonaIds: null })],
+  });
+  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '' };
+  const server = createServer({
+    store,
+    adapter: stubAdapter(),
+    config,
+    log: { warn() {}, error() {}, info() {} },
+    watcher,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /Feed item/);
+  assert.equal(followCalls, 0);
+});
+
+test('RSS with actor starts TTS follow-up when the feed has items', async () => {
+  const followCalls = [];
+  const watcher = {
+    afterSkillFetch(args) {
+      followCalls.push(args);
+    },
+  };
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Skill item', hearerPersonaIds: null })],
+  });
+  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '' };
+  const server = createServer({
+    store,
+    adapter: stubAdapter(),
+    config,
+    log: { warn() {}, error() {}, info() {} },
+    watcher,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}&actor=${encodeURIComponent(PERSONA_A.id)}`);
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /Skill item/);
+  assert.equal(followCalls.length, 1);
+  assert.equal(followCalls[0].show, 'Test Show');
+  assert.ok(followCalls[0].since instanceof Date);
+});
+
+test('non-skill RSS followed by actor RSS still starts TTS follow-up', async () => {
+  const followCalls = [];
+  const watcher = {
+    afterSkillFetch(args) {
+      followCalls.push(args);
+    },
+  };
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Shared item', hearerPersonaIds: null })],
+  });
+  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '' };
+  const server = createServer({
+    store,
+    adapter: stubAdapter(),
+    config,
+    log: { warn() {}, error() {}, info() {} },
+    watcher,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}&actor=${encodeURIComponent(PERSONA_A.id)}`);
+  assert.equal(followCalls.length, 1);
+  assert.equal(followCalls[0].show, 'Test Show');
+});
+
 test('actor RSS keeps text, guid, date, and escaped teller metadata', async () => {
   const { store } = await tempStore({
     tidbits: [
@@ -127,4 +216,34 @@ test('actor RSS keeps text, guid, date, and escaped teller metadata', async () =
   assert.match(xml, /<pubDate>[^<]+<\/pubDate>/);
   assert.match(xml, /<gossipTeller>Alpha<\/gossipTeller>/);
   assert.doesNotMatch(xml, /hearer|p_a|p_b|PERSONA/);
+});
+
+test('feedBaseUrl self-link includes show and actor query params', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Rumor', tellerPersonaId: PERSONA_A.id, hearerPersonaIds: null })],
+  });
+  const base = await start(store, stubAdapter(), 'http://companion.test');
+  const res = await fetch(
+    `${base}/gossip.rss?show=${encodeURIComponent('Test Show')}&actor=${encodeURIComponent('persona-a')}`,
+  );
+  assert.equal(res.status, 200);
+  const xml = await res.text();
+  assert.match(
+    xml,
+    /<link>http:\/\/companion\.test\/gossip\.rss\?show=Test%20Show&amp;actor=persona-a<\/link>/,
+  );
+  const linkCount = [...xml.matchAll(/<link>[^<]+<\/link>/g)].length;
+  assert.equal(linkCount, 2);
+});
+
+test('feedBaseUrl self-link omits actor when request has no actor', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Rumor', tellerPersonaId: PERSONA_A.id, hearerPersonaIds: null })],
+  });
+  const base = await start(store, stubAdapter(), 'http://companion.test');
+  const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  assert.equal(res.status, 200);
+  const xml = await res.text();
+  assert.match(xml, /<link>http:\/\/companion\.test\/gossip\.rss\?show=Test%20Show<\/link>/);
+  assert.doesNotMatch(xml, /actor=/);
 });

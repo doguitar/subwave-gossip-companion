@@ -95,3 +95,8 @@ export async function appendLlmCall(filePath = 'logs/llm-calls.jsonl', record) {
   await appendFile(filePath, line, 'utf8');
   await purgeExpiredSegments(filePath);
 }
+
+export async function appendOperationalLog(filePath, line) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await appendFile(filePath, `${line}\n`, 'utf8');
+}

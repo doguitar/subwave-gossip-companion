@@ -6,12 +6,7 @@ import { refreshGossip, seedGossip } from './seed.js';
 import { ingestSpoken } from './ingest.js';
 import { generateSeed } from './llm.js';
 import { createFollowupWatcher } from './followup.js';
-
-const log = {
-  info: (m) => console.log(m),
-  warn: (m) => console.warn(m),
-  error: (m) => console.error(m),
-};
+import { createLog } from './log.js';
 
 function baseDirFromArgs(argv) {
   const index = argv.findIndex((arg) => arg === '--base-dir' || arg === '--base');
@@ -27,6 +22,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   applyCliOptions(argv, env);
   const command = argv[0] || 'serve';
   const config = requireConfig(env);
+  const log = createLog(config.operationalLogPath);
   const store = new GossipStore(config.statePath);
   await store.load();
   log.info(`[gossip] storage ready path=${config.statePath} tidbits=${store.snapshot().tidbits.length}`);

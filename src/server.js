@@ -21,6 +21,16 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+function gossipFeedSelfLink(feedBaseUrl, requestUrl, show, actor) {
+  if (!feedBaseUrl) {
+    return `${requestUrl.origin}${requestUrl.pathname}${requestUrl.search}`;
+  }
+  const root = feedBaseUrl.replace(/\/+$/, '');
+  let link = `${root}/gossip.rss?show=${encodeURIComponent(show)}`;
+  if (actor) link += `&actor=${encodeURIComponent(actor)}`;
+  return link;
+}
+
 export function buildTidbitPage(tidbits) {
   const items = tidbits.map((tidbit) => `<li>${escapeHtml(tidbit.text)}</li>`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>Station Gossip</title></head><body><h1>Station Gossip</h1><ol>${items}</ol></body></html>`;
@@ -100,14 +110,13 @@ export function createServer({ store, adapter, config, log = console, watcher, g
       if (!personas.length) {
         log.warn?.(`[gossip] empty RSS for show=${show} (no personas)`);
       }
-      const requestLink = `${url.origin}${url.pathname}${url.search}`;
       const xml = buildRss({
         items,
-        link: config.feedBaseUrl ? `${config.feedBaseUrl}/gossip.rss?show=${encodeURIComponent(show)}` : requestLink,
+        link: gossipFeedSelfLink(config.feedBaseUrl, url, show, actor),
       });
       res.writeHead(200, { 'Content-Type': 'application/rss+xml; charset=utf-8' });
       res.end(xml);
-      if (items.length) {
+      if (items.length && actor) {
         const follow = watcher || createFollowupWatcher({ store, adapter, config, log });
         follow.afterSkillFetch({ show, since: new Date() });
       }
