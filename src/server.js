@@ -116,7 +116,7 @@ export function createServer({ store, adapter, config, log = console, watcher, g
       });
       res.writeHead(200, { 'Content-Type': 'application/rss+xml; charset=utf-8' });
       res.end(xml);
-      if (items.length && actor) {
+      if (items.length) {
         const follow = watcher || createFollowupWatcher({ store, adapter, config, log });
         follow.afterSkillFetch({ show, since: new Date() });
       }
