@@ -27,8 +27,9 @@ The companion fetches the station's current context from the Subwave admin API o
 3. The companion reads the station rules from the admin settings field `values.djHouseRules`.
 4. It reads the persona roster and each persona's `soul` from `values.personas`.
 5. Both are inserted into the user prompt sent to the configured LLM provider for every generated tidbit.
+6. For each rumor, the companion picks one comic register from a built-in catalog and adds a `Rumor register for this rumor` block to that user prompt. The system prompt defers register choice to this block.
 
-The request includes a `DJ house rules` block and a `Station souls` block. Updating these fields in Subwave changes subsequent generations; no code or prompt-file edit is required. Keep secrets and real private-person information out of the house rules and persona souls.
+The request includes `DJ house rules`, `Station souls`, and (per rumor) the register block. Updating house rules or persona souls in Subwave changes subsequent generations; no code or prompt-file edit is required. Keep secrets and real private-person information out of the house rules and persona souls.
 
 ## Local usage
 

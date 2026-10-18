@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { RUMOR_REGISTERS } from '../src/register.js';
 import { refreshGossip, seedGossip } from '../src/seed.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
 
@@ -77,12 +78,16 @@ test('refresh replaces the board; zero hearers become said-on-air', async () => 
 test('refresh retries rejected model output before failing', async () => {
   const { store } = await tempStore();
   let attempts = 0;
+  const registers = [];
+  const fixedRegister = RUMOR_REGISTERS[2];
   const result = await refreshGossip({
     store,
     adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
     pickRoles: () => onAir,
-    generate: async () => {
+    pickRegister: () => fixedRegister,
+    generate: async ({ register }) => {
       attempts += 1;
+      registers.push(register);
       return { rumor: attempts === 1 ? 'string' : 'unconfirmed the booth kettle whistled twice' };
     },
     cap: 1,
@@ -92,6 +97,33 @@ test('refresh retries rejected model output before failing', async () => {
   });
   assert.equal(attempts, 2);
   assert.equal(result.refreshed, 1);
+  assert.deepEqual(registers, [fixedRegister, fixedRegister]);
+});
+
+test('seed passes a register on every generate call for each new rumor', async () => {
+  const { store } = await tempStore();
+  const seenRegisters = [];
+  const pickRegister = (() => {
+    let i = 0;
+    return () => RUMOR_REGISTERS[i++ % RUMOR_REGISTERS.length];
+  })();
+  const result = await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    pickRegister,
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ register }) => {
+      seenRegisters.push(register.id);
+      return { rumor: `unconfirmed station kettle remembers register ${register.id} tonight` };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.seeded, 2);
+  assert.equal(seenRegisters.length, 2);
+  assert.notEqual(seenRegisters[0], seenRegisters[1]);
 });
 
 test('seed retries rate limits indefinitely and preserves earlier tidbits', async () => {
