@@ -134,6 +134,26 @@ test('SEED_SYSTEM requires multi-target rumors to be one coherent beat', () => {
   assert.match(SEED_SYSTEM, /picture of what the subject did/);
 });
 
+test('SEED_SYSTEM allows credible provenance while rumor-targets stay the subject', () => {
+  assert.match(SEED_SYSTEM, /provenance|how the teller learned|overheard|walked in/i);
+  assert.match(SEED_SYSTEM, /rumor-targets|the subject/i);
+  assert.doesNotMatch(SEED_SYSTEM, /only about the subject\.?\s*$/m);
+  assert.match(SEED_SYSTEM, /consequence|moral/i);
+  assert.match(SEED_SYSTEM, /20 to 240/);
+});
+
+test('seedUserPrompt nudges private beats toward teller-plausible sourcing when targets are listed', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
+  assert.match(prompt, /plausibly repeat|credible sourcing|how this teller/i);
+});
+
+test('seedUserPrompt omits private-scene plausibility nudge when there are no rumor-targets', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
+  assert.doesNotMatch(prompt, /plausibly repeat|credible sourcing|how this teller/i);
+});
+
 test('telephone prompt carries the immediately previous telling', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
   const prompt = seedUserPrompt({

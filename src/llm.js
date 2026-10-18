@@ -41,12 +41,16 @@ Write this rumor in that comic register only.
 
 `
     : '';
+  const plausibility =
+    roles.targets.length
+      ? ' If the beat is private or salacious, phrase it so this teller could plausibly repeat it to these hearers—credible sourcing in the quote is allowed when the system rules say so.'
+      : '';
   return `Station day: ${day}
 
 Teller (already chosen): ${withSoul(roles.teller)}
 Hearers (already chosen): ${hearers}
 Rumor-targets (already chosen): ${targets}
-${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.
+${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}
 
 ## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}
