@@ -59,7 +59,7 @@ A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events 
 
 ### Refreshing gossip
 
-The CLI refresh replaces the current board with a new linked set of tidbits:
+The CLI refresh replaces the current board with a new linked set of tidbits. On a successful refresh, gossip comments whose `tidbitId` is not on the new board are removed; a failed refresh leaves comments unchanged.
 
 ```bash
 node src/cli.js refresh --base-dir .

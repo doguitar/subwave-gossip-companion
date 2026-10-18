@@ -5,6 +5,7 @@ import {
   appendGeneratedGossipHistory,
   currentTidbits,
   generatedGossipHistory,
+  pruneGossipCommentsToTidbits,
   tidbitKey,
 } from './store.js';
 import { validateRumor } from './validate.js';
@@ -221,6 +222,7 @@ export async function refreshGossip({
   }
   await store.mutate((state) => {
     appendGeneratedGossipHistory(state, tidbits.map((t) => t.text), historyGenerations);
+    state.gossipComments = pruneGossipCommentsToTidbits(state.tidbits, state.gossipComments);
   });
   log.info?.(`[gossip] refreshed board with ${tidbits.length} linked tidbit(s) for ${day}`);
   return { refreshed: tidbits.length, rejected: rejected.length, day, tidbits };

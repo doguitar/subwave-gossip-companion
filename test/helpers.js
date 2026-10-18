@@ -59,6 +59,9 @@ export async function tempStore(state) {
       if (state.generatedGossipHistory !== undefined) {
         s.generatedGossipHistory = state.generatedGossipHistory;
       }
+      if (state.gossipComments !== undefined) {
+        s.gossipComments = state.gossipComments;
+      }
     });
   }
   return { store, filePath, read: () => readFile(filePath, 'utf8').then(JSON.parse) };

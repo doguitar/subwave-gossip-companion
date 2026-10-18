@@ -207,6 +207,63 @@ test('refresh clears tidbits but preserves history until the new batch appends',
   assert.deepEqual(state.generatedGossipHistory, [[priorGenerated], [wrapped]]);
 });
 
+test('successful refresh prunes gossip comments that reference removed tidbits', async () => {
+  const priorGenerated = 'Beta told Alpha, "unconfirmed Gamma coughed a cart that was only static"';
+  const { store, read } = await tempStore({
+    tidbits: [
+      tidbit({ id: 'stale-a', text: 'stale board item', hearerPersonaIds: null }),
+      tidbit({ id: 'stale-b', text: 'another stale item', hearerPersonaIds: null }),
+    ],
+    generatedGossipHistory: [[priorGenerated]],
+    gossipComments: [
+      { id: 'orphan-1', tidbitId: 'stale-a', actorPersonaId: 'p_a', commentedAt: '2026-09-18T10:00:00.000Z' },
+      { id: 'orphan-2', tidbitId: 'stale-b', actorPersonaId: 'p_b', show: 'Test Show', commentedAt: '2026-09-18T11:00:00.000Z' },
+      { id: 'orphan-3', tidbitId: 'missing', actorPersonaId: 'p_c', commentedAt: '2026-09-18T12:00:00.000Z' },
+    ],
+  });
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async () => ({ rumor: 'unconfirmed the booth kettle whistled through the legal ID' }),
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 1);
+  const state = await read();
+  assert.deepEqual(state.gossipComments, []);
+  const wrapped = 'Alpha said on air, "unconfirmed the booth kettle whistled through the legal ID"';
+  assert.deepEqual(state.generatedGossipHistory, [[priorGenerated], [wrapped]]);
+});
+
+test('failed refresh leaves gossip comments unchanged', async () => {
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({ id: 'old', text: 'old news', hearerPersonaIds: null })],
+    gossipComments: [
+      { id: 'keep-me', tidbitId: 'old', actorPersonaId: 'p_a', commentedAt: '2026-09-19T00:00:00.000Z' },
+    ],
+  });
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => onAir,
+      generate: async () => ({ rumor: 'short' }),
+      cap: 1,
+      historyGenerations: 7,
+      timezone: 'UTC',
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.status === 502,
+  );
+  const state = await read();
+  assert.equal(state.gossipComments.length, 1);
+  assert.equal(state.gossipComments[0].id, 'keep-me');
+  assert.equal(state.gossipComments[0].tidbitId, 'old');
+});
+
 test('historyGenerations 0 sends empty existing history and clears persisted history', async () => {
   const priorGenerated = 'Alpha told Beta, "word is Gamma hid a cart behind the legal ID again"';
   const { store, read } = await tempStore({
