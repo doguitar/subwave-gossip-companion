@@ -65,6 +65,8 @@ The CLI refresh replaces the current board with a new linked set of tidbits. On 
 
 During one refresh, each successfully appended rumor uses a distinct rumor-target persona set—the unordered persona IDs in `roles.targets`, including the empty set when there are zero targets. The refresh loop resamples role picks up to a small retry budget when a set would repeat; only accepted tidbits reserve a set, and deduplication is scoped to that batch only (not prior days or generated history).
 
+On the default refresh path (no injected role picker), the loop keeps generating until every roster persona has appeared as teller or hearer on at least one accepted rumor and as a rumor-target on at least one accepted rumor. Empty target sets do not count toward target coverage. Refreshes that inject a fixed role picker or use a low link cap skip that completeness check. If the link budget is exhausted before both conditions hold, the refresh fails with no successful board replacement, same as an incomplete telephone chain.
+
 ```bash
 node src/cli.js refresh --base-dir .
 ```

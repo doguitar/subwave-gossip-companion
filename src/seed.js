@@ -88,14 +88,39 @@ function applyUncoveredHearerBias(roles, roster, involved) {
   return { ...roles, hearers };
 }
 
-function pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, usedTargetSets) {
+function applyUncoveredTargetBias(roles, roster, targetCovered) {
+  const uncovered = roster.filter((persona) => !targetCovered.has(persona.id));
+  if (!roles || !uncovered.length) return roles;
+  if (roles.targets.some((p) => p.id === uncovered[0].id)) return roles;
+  const blocked = new Set([roles.teller.id, ...roles.hearers.map((p) => p.id)]);
+  if (blocked.has(uncovered[0].id)) return roles;
+  const maxTargets = 2;
+  if (roles.targets.length < maxTargets) {
+    return { ...roles, targets: [...roles.targets, uncovered[0]] };
+  }
+  const replaceIndex = roles.targets.findIndex((p) => targetCovered.has(p.id));
+  if (replaceIndex === -1) return roles;
+  const nextTargets = roles.targets.slice();
+  nextTargets[replaceIndex] = uncovered[0];
+  return { ...roles, targets: nextTargets };
+}
+
+function pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets) {
   let roles = null;
   for (let attempt = 0; attempt < TARGET_SET_PICK_ATTEMPTS; attempt += 1) {
     roles = applyUncoveredHearerBias(chooseRoles(roster), roster, involved);
+    roles = applyUncoveredTargetBias(roles, roster, targetCovered);
     if (!roles) return null;
     if (!usedTargetSets.has(rumorTargetSetKey(roles.targets))) return roles;
   }
   return roles;
+}
+
+function refreshCompletenessShortfall(involved, targetCovered, roster) {
+  const participationIncomplete = involved.size < roster.length;
+  const targetIncomplete = targetCovered.size < roster.length;
+  if (!participationIncomplete && !targetIncomplete) return null;
+  return { participationIncomplete, targetIncomplete };
 }
 
 export async function seedGossip({
@@ -204,6 +229,7 @@ export async function refreshGossip({
   const tidbits = [];
   const rejected = [];
   const involved = new Set();
+  const targetCovered = new Set();
   const usedTargetSets = new Set();
   const requireComplete = !pickRoles;
   const maxLinks = requireComplete ? Math.max(1, roster.length * 3) : cap;
@@ -214,8 +240,8 @@ export async function refreshGossip({
   await store.mutate((state) => {
     state.tidbits = [];
   });
-  for (let i = 0; i < maxLinks && (!requireComplete || involved.size < roster.length); i += 1) {
-    const roles = pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, usedTargetSets);
+  for (let i = 0; i < maxLinks && (!requireComplete || refreshCompletenessShortfall(involved, targetCovered, roster)); i += 1) {
+    const roles = pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets);
     if (!roles) {
       rejected.push({ reason: 'no-roles' });
       break;
@@ -245,9 +271,19 @@ export async function refreshGossip({
     usedTargetSets.add(rumorTargetSetKey(roles.targets));
     involved.add(roles.teller.id);
     roles.hearers.forEach((p) => involved.add(p.id));
+    roles.targets.forEach((p) => targetCovered.add(p.id));
   }
-  if (!tidbits.length || (requireComplete && involved.size < roster.length)) {
-    throw Object.assign(new Error('LLM produced no complete station-wide hallway chain'), { status: 502, rejected, involved: involved.size, roster: roster.length });
+  const shortfall = requireComplete ? refreshCompletenessShortfall(involved, targetCovered, roster) : null;
+  if (!tidbits.length || shortfall) {
+    throw Object.assign(new Error('LLM produced no complete station-wide hallway chain'), {
+      status: 502,
+      rejected,
+      involved: involved.size,
+      targetCovered: targetCovered.size,
+      roster: roster.length,
+      participationIncomplete: shortfall?.participationIncomplete ?? involved.size < roster.length,
+      targetIncomplete: shortfall?.targetIncomplete ?? targetCovered.size < roster.length,
+    });
   }
   await store.mutate((state) => {
     appendGeneratedGossipHistory(state, tidbits.map((t) => t.text), historyGenerations);
