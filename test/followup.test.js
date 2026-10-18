@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import { waitForStationGossipTts, findStationGossipTts } from '../src/ttsWatch.js';
-import { appendGeneratedGossip, formatOnAirTidbit } from '../src/followup.js';
+import { appendGeneratedGossip, formatOnAirTidbit, recoverFullSpokenText } from '../src/followup.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore } from './helpers.js';
 test('cohosted TTS expands all speakers from the matching station LLM call', async () => {
   const first = {
@@ -228,6 +231,27 @@ test('TTS display name Uncle Kai is stored as his persona id and comments the so
 
 test('formatOnAirTidbit skips when identity cannot be resolved', () => {
   assert.equal(formatOnAirTidbit({ text: 'hello', meta: {} }, [], []), null);
+});
+
+test('recoverFullSpokenText reads matching responses from rolled LLM call log segments', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-log-'));
+  const logPath = path.join(dir, 'llm-calls.jsonl');
+  const fullText =
+    'I have been reflecting further on Werner’s account of the laundry room and the machine that eats all our socks.';
+  const shortText = fullText.slice(0, 60);
+  const rolledPath = path.join(dir, 'llm-calls.1999999999999.jsonl');
+  await writeFile(
+    rolledPath,
+    `${JSON.stringify({ response: { segment: { kind: 'station-gossip', text: fullText } } })}\n`,
+    'utf8',
+  );
+
+  const recovered = await recoverFullSpokenText(
+    { kind: 'station-gossip', text: shortText, meta: { personaName: 'Reed Silver' } },
+    logPath,
+    { info() {}, warn() {} },
+  );
+  assert.equal(recovered.text, fullText);
 });
 
 test('formatOnAirTidbit uses last session speaker when TTS meta has no persona', () => {
