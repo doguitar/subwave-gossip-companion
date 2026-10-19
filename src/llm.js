@@ -159,9 +159,21 @@ function openaiChatUrl(baseUrl) {
   return `${root}/chat/completions`;
 }
 
-export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system, user }) {
+function normalizedThinkingLevel(thinkingLevel) {
+  const value = typeof thinkingLevel === 'string' ? thinkingLevel.trim() : '';
+  return value.length ? value : undefined;
+}
+
+export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system, user, thinkingLevel }) {
+  const thinking = normalizedThinkingLevel(thinkingLevel);
+
   if (provider === 'google') {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const generationConfig = {
+      temperature: 0.9,
+      responseMimeType: 'application/json',
+      ...(thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}),
+    };
     return {
       url,
       headers: {
@@ -172,10 +184,7 @@ export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system
       body: {
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: user }] }],
-        generationConfig: {
-          temperature: 0.9,
-          responseMimeType: 'application/json',
-        },
+        generationConfig,
       },
     };
   }
@@ -194,6 +203,7 @@ export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system
         temperature: 0.9,
         system,
         messages: [{ role: 'user', content: user }],
+        ...(thinking ? { output_config: { effort: thinking } } : {}),
       },
     };
   }
@@ -204,18 +214,25 @@ export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system
   };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const official = /api\.openai\.com/i.test(String(openaiBaseUrl || ''));
+  const openaiBody = {
+    model,
+    temperature: 0.9,
+    ...(official ? { response_format: { type: 'json_object' } } : {}),
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+  };
+  if (thinking) {
+    openaiBody.reasoning_effort = thinking;
+    if (!official) {
+      openaiBody.thinking = { type: 'enabled', level: thinking };
+    }
+  }
   return {
     url: openaiChatUrl(openaiBaseUrl),
     headers,
-    body: {
-      model,
-      temperature: 0.9,
-      ...(official ? { response_format: { type: 'json_object' } } : {}),
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    },
+    body: openaiBody,
   };
 }
 
@@ -223,7 +240,7 @@ export function parseLlmResponse(provider, data) {
   if (data && (data.rumor || data.items || data.text)) return data;
   if (provider === 'google') {
     const parts = data?.candidates?.[0]?.content?.parts || [];
-    const texts = parts.map((p) => p.text).filter(Boolean);
+    const texts = parts.filter((p) => p.text && !p.thought).map((p) => p.text);
     let lastErr;
     for (const text of texts) {
       try {
@@ -288,6 +305,7 @@ export async function generateSeed({
     openaiBaseUrl,
     system: systemPrompt,
     user,
+    thinkingLevel: config.llmThinkingLevel,
   });
   const res = await fetchImpl(request.url, {
     method: 'POST',
