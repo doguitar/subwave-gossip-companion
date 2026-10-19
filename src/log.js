@@ -1,5 +1,11 @@
 import { appendOperationalLog } from './callLog.js';
 
+/** Collapse internal newlines and JSON-quote for single-line operational log fields. */
+export function formatRumorForOperationalLog(text) {
+  const singleLine = String(text ?? '').replace(/\r\n|\r|\n/g, ' ').trim();
+  return JSON.stringify(singleLine);
+}
+
 export function createLog(operationalLogPath, consoleSink = console) {
   let reportedWriteError = false;
 

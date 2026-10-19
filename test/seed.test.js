@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
+import { createLog } from '../src/log.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { rumorTargetSetKey } from '../src/roles.js';
 import { seedUserPrompt } from '../src/llm.js';
@@ -745,4 +749,88 @@ test('refresh threads session tidbits the same way as seed', async () => {
   assert.equal(sessionAtCall.length, 2);
   assert.deepEqual(sessionAtCall[0], []);
   assert.equal(sessionAtCall[1].length, 1);
+});
+
+function assertSingleLineGossipOperationalLog(operational) {
+  const physicalLines = operational.split('\n').filter((line) => line.length > 0);
+  for (const line of physicalLines) {
+    assert.match(line, /^\[gossip\]/);
+    assert.equal(line.includes('\n'), false);
+  }
+  return physicalLines;
+}
+
+test('seedGossip echoes accepted tidbit text to the operational log', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'gossip-seed-echo-'));
+  const operationalLogPath = path.join(base, 'logs', 'gossip.log');
+  const log = createLog(operationalLogPath);
+  const rumor = 'word is Gamma hid a cart behind the legal ID again';
+  const { store } = await tempStore();
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => ({ rumor }),
+    log,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const physicalLines = assertSingleLineGossipOperationalLog(await readFile(operationalLogPath, 'utf8'));
+  assert.ok(physicalLines.some((line) => line.includes('tidbit accepted') && line.includes(rumor)));
+  assert.ok(!physicalLines.some((line) => line.includes('House rules')));
+});
+
+test('seed review echoes rumor before and after when revision changes text', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'gossip-review-echo-'));
+  const operationalLogPath = path.join(base, 'logs', 'gossip.log');
+  const log = createLog(operationalLogPath);
+  const original = 'word is Gamma hid a cart behind the legal ID again';
+  const revised = 'word is Gamma stashed a dead cart behind the legal ID for laughs';
+  const { store } = await tempStore();
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    generate: async () => ({ rumor: original }),
+    generateReview: async ({ tidbits }) => ({
+      rumors: { [tidbits[0].id]: revised },
+    }),
+    log,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const physicalLines = assertSingleLineGossipOperationalLog(await readFile(operationalLogPath, 'utf8'));
+  assert.ok(
+    physicalLines.some(
+      (line) => line.includes('review revised') && line.includes(original) && line.includes(revised) && line.includes('round=1'),
+    ),
+  );
+});
+
+test('seed review does not echo per-tidbit line when revision leaves text unchanged', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'gossip-review-unchanged-'));
+  const operationalLogPath = path.join(base, 'logs', 'gossip.log');
+  const log = createLog(operationalLogPath);
+  const rumor = 'word is Gamma hid a cart behind the legal ID again';
+  const { store } = await tempStore();
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    generate: async () => ({ rumor }),
+    generateReview: async ({ tidbits }) => ({
+      rumors: { [tidbits[0].id]: rumor },
+    }),
+    log,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const physicalLines = assertSingleLineGossipOperationalLog(await readFile(operationalLogPath, 'utf8'));
+  assert.ok(physicalLines.some((line) => line.includes('tidbit accepted')));
+  assert.ok(!physicalLines.some((line) => line.includes('review revised')));
 });

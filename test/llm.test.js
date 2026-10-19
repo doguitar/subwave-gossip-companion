@@ -18,7 +18,7 @@ import {
   LLM_CALL_LOG_RETENTION_MS,
 } from '../src/callLog.js';
 import { loadConfig } from '../src/config.js';
-import { createLog } from '../src/log.js';
+import { createLog, formatRumorForOperationalLog } from '../src/log.js';
 import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse } from '../src/llm.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { PERSONA_A, PERSONA_B } from './helpers.js';
@@ -109,6 +109,11 @@ test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
     SUBWAVE_API_PASSWORD: 'x',
   }).config;
   assert.equal(custom.operationalLogPath, path.join(custom.baseDir, 'var', 'run', 'gossip.log'));
+});
+
+test('formatRumorForOperationalLog collapses newlines and JSON-quotes', () => {
+  assert.equal(formatRumorForOperationalLog('hello'), '"hello"');
+  assert.equal(formatRumorForOperationalLog('line one\nline two'), '"line one line two"');
 });
 
 test('createLog tees messages to console and the operational log file', async () => {
