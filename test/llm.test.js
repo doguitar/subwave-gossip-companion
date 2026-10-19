@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import {
   appendLlmCall,
@@ -22,9 +23,12 @@ import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse } fr
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { PERSONA_A, PERSONA_B } from './helpers.js';
 
+const repoGossipTypes = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'gossip-types.json');
+
 test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL', () => {
   const { config, errors } = loadConfig({
     GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
     GOSSIP_STATE_PATH: '/outside/state.json',
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
@@ -44,6 +48,7 @@ test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL
 test('loadConfig omits llmThinkingLevel when thinking env is unset or whitespace-only', () => {
   const base = {
     GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
@@ -56,6 +61,7 @@ test('loadConfig omits llmThinkingLevel when thinking env is unset or whitespace
 test('loadConfig maps PROVIDER_THINKING and GOSSIP_LLM_THINKING alias with primary precedence', () => {
   const base = {
     GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
@@ -71,6 +77,7 @@ test('loadConfig maps PROVIDER_THINKING and GOSSIP_LLM_THINKING alias with prima
 test('loadConfig accepts GOSSIP_REVIEW_ROUNDS 0-5 and rejects out-of-range values', () => {
   const base = {
     GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
@@ -85,6 +92,7 @@ test('loadConfig accepts GOSSIP_REVIEW_ROUNDS 0-5 and rejects out-of-range value
 test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
   const { config, errors } = loadConfig({
     GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
@@ -94,6 +102,7 @@ test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
 
   const custom = loadConfig({
     GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
     GOSSIP_OPERATIONAL_LOG: 'var/run/gossip.log',
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',

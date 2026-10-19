@@ -63,6 +63,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       minLength: config.minRumorLength,
       log,
       reviewRounds: config.reviewRounds,
+      rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config, log, ...args }),
       generateReview: (args) => generateReview({ config, log, ...args }),
     });
@@ -80,6 +81,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       minLength: config.minRumorLength,
       log,
       reviewRounds: config.reviewRounds,
+      rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config, log, ...args }),
       generateReview: (args) => generateReview({ config, log, ...args }),
     });

@@ -51,9 +51,10 @@ test('multiple hearers use and-list wrap', () => {
 });
 
 test('pickRumorRegister chooses deterministically from catalog ids', () => {
-  const first = pickRumorRegister({ rng: seq([0, 0.99, 0.5]) });
-  const second = pickRumorRegister({ rng: seq([0.25, 0.25]) });
-  const third = pickRumorRegister({ rng: seq([0.99]) });
+  const catalog = RUMOR_REGISTERS;
+  const first = pickRumorRegister({ catalog, rng: seq([0, 0.99, 0.5]) });
+  const second = pickRumorRegister({ catalog, rng: seq([0.25, 0.25]) });
+  const third = pickRumorRegister({ catalog, rng: seq([0.99]) });
   assert.equal(first.id, RUMOR_REGISTERS[0].id);
   assert.equal(second.id, RUMOR_REGISTERS[1].id);
   assert.equal(third.id, RUMOR_REGISTERS[RUMOR_REGISTERS.length - 1].id);
