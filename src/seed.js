@@ -10,6 +10,7 @@ import {
   tidbitKey,
 } from './store.js';
 import { validateRumor } from './validate.js';
+import { reviewGossipBatch } from './review.js';
 
 export function stationDay(now = new Date(), timeZone = 'UTC') {
   try {
@@ -151,6 +152,8 @@ export async function seedGossip({
   pickRegister,
   sleep,
   minLength = 20,
+  reviewRounds = 0,
+  generateReview,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
   const chooseRegister = pickRegister || pickRumorRegister;
@@ -167,6 +170,8 @@ export async function seedGossip({
     ? generatedGossipHistory(store.snapshot()).flat()
     : [];
   const sessionTexts = [];
+  const batchTidbits = [];
+  const batchRoles = new Map();
   const seen = new Set(currentTidbits(store.snapshot()).map(tidbitKey));
   let seeded = 0;
   let rejected = 0;
@@ -203,8 +208,32 @@ export async function seedGossip({
       state.tidbits.push(result.tidbit);
     });
     seen.add(tidbitKey(result.tidbit));
+    batchTidbits.push(result.tidbit);
+    batchRoles.set(result.tidbit.id, { roles, register });
     sessionTexts.push(result.tidbit.text);
     seeded += 1;
+  }
+  if (batchTidbits.length && reviewRounds > 0) {
+    const { tidbits: reviewed } = await reviewGossipBatch({
+      tidbits: batchTidbits,
+      rolesById: batchRoles,
+      roster,
+      houseRules,
+      day,
+      reviewRounds,
+      generateReview,
+      log,
+      minLength,
+    });
+    const byId = new Map(reviewed.map((t) => [t.id, t]));
+    await store.mutate((state) => {
+      state.tidbits = state.tidbits.map((t) => byId.get(t.id) || t);
+    });
+    for (let i = 0; i < sessionTexts.length; i += 1) {
+      const id = batchTidbits[i]?.id;
+      const updated = id ? byId.get(id) : null;
+      if (updated) sessionTexts[i] = updated.text;
+    }
   }
   if (sessionTexts.length || historyGenerations === 0) {
     await store.mutate((state) => {
@@ -229,6 +258,8 @@ export async function refreshGossip({
   pickRegister,
   sleep,
   minLength = 20,
+  reviewRounds = 0,
+  generateReview,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
   const chooseRegister = pickRegister || pickRumorRegister;
@@ -243,6 +274,7 @@ export async function refreshGossip({
   const day = stationDay(now, tz);
   const createdAt = now.toISOString();
   const tidbits = [];
+  const batchRoles = new Map();
   const rejected = [];
   const involved = new Set();
   const targetCovered = new Set();
@@ -282,6 +314,7 @@ export async function refreshGossip({
       continue;
     }
     tidbits.push(result.tidbit);
+    batchRoles.set(result.tidbit.id, { roles, register });
     await store.mutate((state) => {
       state.tidbits.push(result.tidbit);
     });
@@ -302,12 +335,31 @@ export async function refreshGossip({
       targetIncomplete: shortfall?.targetIncomplete ?? targetCovered.size < roster.length,
     });
   }
+  let finalTidbits = tidbits;
+  if (tidbits.length && reviewRounds > 0) {
+    const { tidbits: reviewed } = await reviewGossipBatch({
+      tidbits,
+      rolesById: batchRoles,
+      roster,
+      houseRules,
+      day,
+      reviewRounds,
+      generateReview,
+      log,
+      minLength,
+    });
+    finalTidbits = reviewed;
+    const byId = new Map(reviewed.map((t) => [t.id, t]));
+    await store.mutate((state) => {
+      state.tidbits = state.tidbits.map((t) => byId.get(t.id) || t);
+    });
+  }
   await store.mutate((state) => {
-    appendGeneratedGossipHistory(state, tidbits.map((t) => t.text), historyGenerations);
+    appendGeneratedGossipHistory(state, finalTidbits.map((t) => t.text), historyGenerations);
     state.gossipComments = pruneGossipCommentsToTidbits(state.tidbits, state.gossipComments);
   });
   log.info?.(`[gossip] refreshed board with ${tidbits.length} linked tidbit(s) for ${day}`);
-  return { refreshed: tidbits.length, rejected: rejected.length, day, tidbits };
+  return { refreshed: finalTidbits.length, rejected: rejected.length, day, tidbits: finalTidbits };
 }
 
 async function timezoneFromSchedule(adapter) {

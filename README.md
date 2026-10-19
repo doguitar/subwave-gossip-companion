@@ -15,9 +15,12 @@ PROVIDER_KEY=...
 PROVIDER_MODEL=gpt-4o-mini
 OPENAI_BASE_URL=https://api.openai.com/v1
 PROVIDER_THINKING=
+GOSSIP_REVIEW_ROUNDS=0
 ```
 
 `PROVIDER_THINKING` (or `GOSSIP_LLM_THINKING`) optionally steers provider thinking/reasoning depth for seed-generation LLM calls. When unset or blank after trim, thinking is off and outgoing request bodies match the pre-thinking defaults. When set to any non-empty string, that value is passed through to the provider (for example `low`, `medium`, `high`, `max`, or tokens your local proxy understands) without validation.
+
+`GOSSIP_REVIEW_ROUNDS` (default `0`, range `0`–`5`) runs optional post-generation **punch-up** passes after a successful seed or refresh batch. Each round sends every tidbit from that batch to the LLM for sharper humor and better cross-rumor continuity; teller/hearer persona ids and the told/said-on-air wrapper stay fixed. Higher values add latency and LLM cost. At `0`, behavior matches pre-review releases (no extra model calls).
 
 `GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`); each line is one physical log event with no embedded newlines (seed generation logs only a one-line start summary). Full system and user prompts for each LLM call are recorded in the active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`), which rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
 

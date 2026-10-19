@@ -531,6 +531,200 @@ test('seed adds stronger beat-variety steering when mocks repeat the same stunt 
   assert.equal(calls, 2);
 });
 
+test('reviewRounds 0 does not call generateReview', async () => {
+  const { store } = await tempStore();
+  let reviewCalls = 0;
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 0,
+    generateReview: async () => {
+      reviewCalls += 1;
+      return { rumors: {} };
+    },
+    generate: async () => ({ rumor: 'word is Gamma hid a cart behind the legal ID again' }),
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(reviewCalls, 0);
+});
+
+test('seed review updates quoted rumor while preserving teller and hearer ids', async () => {
+  const { store, read } = await tempStore();
+  const revised = 'word is Gamma stashed a dead cart behind the legal ID for laughs';
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    generate: async () => ({ rumor: 'word is Gamma hid a cart behind the legal ID again' }),
+    generateReview: async ({ tidbits }) => ({
+      rumors: { [tidbits[0].id]: revised },
+    }),
+    log: { info() {}, warn() {} },
+  });
+  const state = await read();
+  assert.equal(state.tidbits[0].tellerPersonaId, PERSONA_A.id);
+  assert.deepEqual(state.tidbits[0].hearerPersonaIds, [PERSONA_B.id]);
+  assert.equal(state.tidbits[0].text, `Alpha told Beta, "${revised}"`);
+});
+
+test('seed review keeps prior rumor when validation rejects a revision', async () => {
+  const { store, read } = await tempStore();
+  const original = 'word is Gamma hid a cart behind the legal ID again';
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    generate: async () => ({ rumor: original }),
+    generateReview: async ({ tidbits }) => ({
+      rumors: { [tidbits[0].id]: 'string' },
+    }),
+    log: { info() {}, warn() {} },
+  });
+  const state = await read();
+  assert.equal(state.tidbits[0].text, `Alpha told Beta, "${original}"`);
+});
+
+test('seed review chains multiple rounds on accepted text', async () => {
+  const { store, read } = await tempStore();
+  const roundTwo = 'word is Gamma rerouted the legal ID through a dead cart loop';
+  let round = 0;
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 2,
+    generate: async () => ({ rumor: 'word is Gamma hid a cart behind the legal ID again' }),
+    generateReview: async ({ tidbits }) => {
+      round += 1;
+      if (round === 1) {
+        return { rumors: { [tidbits[0].id]: 'word is Gamma stashed a dead cart behind the legal ID for laughs' } };
+      }
+      return { rumors: { [tidbits[0].id]: roundTwo } };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(round, 2);
+  const state = await read();
+  assert.equal(state.tidbits[0].text, `Alpha told Beta, "${roundTwo}"`);
+});
+
+test('refresh review updates board text before history and comment pruning', async () => {
+  const priorGenerated = 'Beta told Alpha, "unconfirmed Gamma coughed a cart that was only static"';
+  const revised = 'unconfirmed the booth kettle whistled through a revised legal ID slot';
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({ id: 'stale', text: 'stale board item', hearerPersonaIds: null })],
+    generatedGossipHistory: [[priorGenerated]],
+    gossipComments: [
+      { id: 'orphan', tidbitId: 'stale', actorPersonaId: 'p_a', commentedAt: '2026-09-18T10:00:00.000Z' },
+    ],
+  });
+  await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    generate: async () => ({ rumor: 'unconfirmed the booth kettle whistled through the legal ID' }),
+    generateReview: async ({ tidbits }) => ({
+      rumors: { [tidbits[0].id]: revised },
+    }),
+    log: { info() {}, warn() {} },
+  });
+  const state = await read();
+  assert.deepEqual(state.gossipComments, []);
+  assert.equal(state.tidbits[0].text, `Alpha said on air, "${revised}"`);
+  assert.deepEqual(state.generatedGossipHistory.at(-1), [`Alpha said on air, "${revised}"`]);
+});
+
+test('review stops further rounds when generateReview throws', async () => {
+  const { store, read } = await tempStore();
+  let round = 0;
+  const kept = 'word is Gamma hid a cart behind the legal ID again';
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 3,
+    generate: async () => ({ rumor: kept }),
+    generateReview: async () => {
+      round += 1;
+      if (round === 1) {
+        return { rumors: { __missing__: 'word is Gamma stashed a dead cart behind the legal ID for laughs' } };
+      }
+      throw new Error('network down');
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(round, 2);
+  const state = await read();
+  assert.equal(state.tidbits[0].text, `Alpha told Beta, "${kept}"`);
+});
+
+test('review rejects revisions that collapse two tidbits to identical text', async () => {
+  const { store, read } = await tempStore();
+  const rumorA = 'word is Gamma hid a cart behind the legal ID again';
+  const rumorB = 'word is Gamma taped a dead cart over the legal ID bumper';
+  let ids = [];
+  let generates = 0;
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 2,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    generate: async () => {
+      generates += 1;
+      return { rumor: generates === 1 ? rumorA : rumorB };
+    },
+    generateReview: async ({ tidbits }) => {
+      ids = tidbits.map((t) => t.id);
+      const shared = 'word is Gamma rerouted the legal ID through a shared dead cart loop';
+      return { rumors: { [ids[0]]: shared, [ids[1]]: shared } };
+    },
+    log: { info() {}, warn() {} },
+  });
+  const shared = 'word is Gamma rerouted the legal ID through a shared dead cart loop';
+  const state = await read();
+  assert.equal(state.tidbits.length, 2);
+  assert.equal(state.tidbits[0].text, `Alpha told Beta, "${shared}"`);
+  assert.equal(state.tidbits[1].text, `Alpha told Beta, "${rumorB}"`);
+});
+
+test('seed appends generated history from post-review tidbit text', async () => {
+  const { store, read } = await tempStore();
+  const revised = 'word is Gamma stashed a dead cart behind the legal ID for laughs';
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    generate: async () => ({ rumor: 'word is Gamma hid a cart behind the legal ID again' }),
+    generateReview: async ({ tidbits }) => ({
+      rumors: { [tidbits[0].id]: revised },
+    }),
+    log: { info() {}, warn() {} },
+  });
+  const state = await read();
+  assert.deepEqual(state.generatedGossipHistory.at(-1), [`Alpha told Beta, "${revised}"`]);
+});
+
 test('refresh threads session tidbits the same way as seed', async () => {
   const { store } = await tempStore();
   const sessionAtCall = [];

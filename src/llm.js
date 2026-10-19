@@ -140,6 +140,46 @@ function firstBalancedObject(text, start) {
   return null;
 }
 
+export const REVIEW_SYSTEM = `You refine quoted hallway rumors for a fictional radio station gossip batch.
+Return JSON only. Revise quoted rumor strings for sharper humor and better continuity across the batch.
+Do not change who told whom, persona names in the wrapper, or the telephone-chain roles.
+Each value must be only the inner quoted rumor text—not the "told" / "said on air" wrapper.
+Keep one comic beat per rumor; no "and now" or "get this" pivot phrases.
+When rumor-targets are listed for a tidbit, keep their exact display names in that rumor.`;
+
+export function reviewUserPrompt({ houseRules = '', day, tidbits = [], round = 1, totalRounds = 1 }) {
+  const lines = tidbits.map((t, index) => {
+    const roles = t.roles;
+    const hearers = roles?.hearers?.length
+      ? roles.hearers.map((p) => `${p.name} (${p.id})`).join(', ')
+      : '(said on air — no hearers)';
+    const targets = roles?.targets?.length
+      ? roles.targets.map((p) => `${p.name} (${p.id})`).join(', ')
+      : '(station-life — no persona targets)';
+    const register = t.register
+      ? `Register: ${t.register.name} — ${t.register.guidance}`
+      : 'Register: (not recorded)';
+    return `### Tidbit ${index + 1}
+id: ${t.id}
+Teller: ${roles?.teller?.name ?? '?'} (${roles?.teller?.id ?? '?'})
+Hearers: ${hearers}
+Rumor-targets: ${targets}
+${register}
+Current quoted rumor: ${t.quotedRumor || quotedRumorFromTidbit(t.text)}`;
+  });
+  return `Station day: ${day}
+Review round: ${round} of ${totalRounds}
+
+Refine every tidbit below for humor and cross-rumor continuity within this batch only.
+Return JSON shaped as { "rumors": { "<tidbit id>": "<revised quoted rumor>" } } with one entry per id.
+
+## DJ house rules
+${String(houseRules || '(no house rules)').trim()}
+
+## Batch tidbits
+${lines.join('\n\n')}`;
+}
+
 export function rumorFromPayload(payload) {
   if (!payload || typeof payload !== 'object') return '';
   if (typeof payload.rumor === 'string') return payload.rumor;
@@ -320,6 +360,77 @@ export async function generateSeed({
   const data = await res.json();
   await appendLlmCall(config.llmCallLogPath, {
     at: new Date().toISOString(),
+    provider,
+    model,
+    url: request.url,
+    request: {
+      headers: {
+        ...request.headers,
+        'x-goog-api-key': request.headers['x-goog-api-key'] ? '[redacted]' : undefined,
+        Authorization: request.headers.Authorization ? '[redacted]' : undefined,
+        'x-api-key': request.headers['x-api-key'] ? '[redacted]' : undefined,
+      },
+      body: request.body,
+    },
+    prompt: { system: systemPrompt, user },
+    response: data,
+  });
+  return parseLlmResponse(provider, data);
+}
+
+export async function generateReview({
+  config,
+  houseRules,
+  day,
+  tidbits,
+  round,
+  totalRounds,
+  fetchImpl = fetch,
+  log,
+}) {
+  const systemPrompt = REVIEW_SYSTEM;
+  const provider = config.llmProvider || 'openai';
+  const apiKey = config.llmApiKey;
+  const model = config.llmModel || DEFAULT_MODELS[provider] || DEFAULT_MODELS.openai;
+  const openaiBaseUrl = config.openaiBaseUrl || config.llmUrl || DEFAULT_OPENAI_BASE_URL;
+  const localOpenAI = provider === 'openai' && !/api\.openai\.com/i.test(openaiBaseUrl);
+  if (!apiKey && !localOpenAI) {
+    throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to review gossip'), { code: 'CONFIG' });
+  }
+
+  const user = reviewUserPrompt({
+    houseRules,
+    day,
+    tidbits,
+    round,
+    totalRounds,
+  });
+  log?.info?.(
+    `[gossip] LLM review call starting provider=${provider} model=${model} day=${day} round=${round}/${totalRounds} tidbits=${tidbits.length}`,
+  );
+  const request = buildLlmRequest({
+    provider,
+    apiKey,
+    model,
+    openaiBaseUrl,
+    system: systemPrompt,
+    user,
+    thinkingLevel: config.llmThinkingLevel,
+  });
+  const res = await fetchImpl(request.url, {
+    method: 'POST',
+    headers: request.headers,
+    body: JSON.stringify(request.body),
+  });
+  if (!res.ok) {
+    const error = new Error(`LLM review request failed: HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
+  const data = await res.json();
+  await appendLlmCall(config.llmCallLogPath, {
+    at: new Date().toISOString(),
+    kind: 'review',
     provider,
     model,
     url: request.url,

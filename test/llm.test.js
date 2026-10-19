@@ -68,6 +68,20 @@ test('loadConfig maps PROVIDER_THINKING and GOSSIP_LLM_THINKING alias with prima
   );
 });
 
+test('loadConfig accepts GOSSIP_REVIEW_ROUNDS 0-5 and rejects out-of-range values', () => {
+  const base = {
+    GOSSIP_BASE_DIR: '/workspace',
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+  };
+  assert.equal(loadConfig({ ...base, GOSSIP_REVIEW_ROUNDS: '0' }).config.reviewRounds, 0);
+  assert.equal(loadConfig({ ...base, GOSSIP_REVIEW_ROUNDS: '5' }).config.reviewRounds, 5);
+  assert.match(loadConfig({ ...base, GOSSIP_REVIEW_ROUNDS: '-1' }).errors.join('; '), /GOSSIP_REVIEW_ROUNDS/);
+  assert.match(loadConfig({ ...base, GOSSIP_REVIEW_ROUNDS: '6' }).errors.join('; '), /GOSSIP_REVIEW_ROUNDS/);
+  assert.match(loadConfig({ ...base, GOSSIP_REVIEW_ROUNDS: '1.5' }).errors.join('; '), /GOSSIP_REVIEW_ROUNDS/);
+});
+
 test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
   const { config, errors } = loadConfig({
     GOSSIP_BASE_DIR: '/workspace',
