@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { rumorTargetSetKey } from '../src/roles.js';
+import { seedUserPrompt } from '../src/llm.js';
 import { refreshGossip, seedGossip } from '../src/seed.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
 
@@ -475,4 +476,79 @@ test('historyGenerations 0 sends empty existing history and clears persisted his
   assert.deepEqual(seenExisting, [[]]);
   const state = await read();
   assert.deepEqual(state.generatedGossipHistory, []);
+});
+
+test('seed threads session tidbits into generate for later rumors in the batch', async () => {
+  const { store } = await tempStore();
+  const sessionAtCall = [];
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ sessionTidbits }) => {
+      sessionAtCall.push([...sessionTidbits]);
+      const n = sessionAtCall.length;
+      return { rumor: `word is Gamma swapped booth prop number ${n} behind the legal ID` };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.deepEqual(sessionAtCall[0], []);
+  assert.equal(sessionAtCall[1].length, 1);
+  assert.match(sessionAtCall[1][0], /prop number 1/);
+});
+
+test('seed adds stronger beat-variety steering when mocks repeat the same stunt shape', async () => {
+  const { store } = await tempStore();
+  let calls = 0;
+  const roles = hallway;
+  const register = RUMOR_REGISTERS[0];
+  await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => roles,
+    pickRegister: () => register,
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ existing, sessionTidbits, day }) => {
+      calls += 1;
+      if (sessionTidbits.length > 0) {
+        const prompt = seedUserPrompt({ day, roles, register, existing, sessionTidbits });
+        assert.match(prompt, /Session beat variety/i);
+        assert.match(prompt, /superglued the kettle shut/i);
+        assert.match(prompt, /different physical\/comic beat type/i);
+      }
+      const rumor = calls === 1
+        ? 'word is Gamma superglued the kettle shut'
+        : 'word is Gamma also epoxied the kettle lid for good measure';
+      return { rumor };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(calls, 2);
+});
+
+test('refresh threads session tidbits the same way as seed', async () => {
+  const { store } = await tempStore();
+  const sessionAtCall = [];
+  await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 2,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async ({ sessionTidbits }) => {
+      sessionAtCall.push([...sessionTidbits]);
+      const n = sessionAtCall.length;
+      return { rumor: `word is Gamma rerouted cart ${n} through the legal ID` };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(sessionAtCall.length, 2);
+  assert.deepEqual(sessionAtCall[0], []);
+  assert.equal(sessionAtCall[1].length, 1);
 });

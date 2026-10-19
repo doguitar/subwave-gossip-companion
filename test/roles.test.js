@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SEED_SYSTEM, seedUserPrompt } from '../src/llm.js';
+import { SEED_SYSTEM, seedUserPrompt, sessionBeatSummary } from '../src/llm.js';
 import { pickRumorRegister, RUMOR_REGISTERS } from '../src/register.js';
 import { hearerIdsForRoles, pickGossipRoles, wrapRumor } from '../src/roles.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C } from './helpers.js';
@@ -65,9 +65,57 @@ test('seed prompt injects register id and guidance', () => {
   const prompt = seedUserPrompt({ day: '2026-09-19', roles, register });
   assert.match(prompt, /Rumor register for this rumor/);
   assert.match(prompt, /petty feud/);
-  assert.match(prompt, /passive-aggressive notes/);
   assert.match(prompt, /Write this rumor in that comic register only/);
   assert.match(prompt, /Write a rumor whose subject, people, and comic beat are all new beside these:/);
+});
+
+test('petty-feud register suggests varied small-stakes stunts without anchoring on notes', () => {
+  const register = RUMOR_REGISTERS.find((r) => r.id === 'petty-feud');
+  assert.ok(register);
+  assert.doesNotMatch(register.guidance, /passive-aggressive notes/i);
+  assert.match(register.guidance, /grudge|feud|stake/i);
+  const flavors = [/mug|mic|gear|prop|locker|swap|hog/i];
+  assert.ok(flavors.some((re) => re.test(register.guidance)));
+});
+
+test('SEED_SYSTEM requires a fresh physical-comic beat type per rumor in one batch', () => {
+  assert.match(SEED_SYSTEM, /Session variety|generation session/i);
+  assert.match(SEED_SYSTEM, /different physical\/comic beat type|different physical or comic beat type/i);
+  assert.doesNotMatch(SEED_SYSTEM, /attached.?signage|labels?, signs, stickers|taped notes/i);
+});
+
+test('sessionBeatSummary is empty when the session has no accepted rumors yet', () => {
+  assert.equal(sessionBeatSummary([]), '');
+});
+
+test('sessionBeatSummary lists plain-language beat setups from session tidbits', () => {
+  const wrapped = 'Alpha told Beta, "word is Gamma superglued the booth kettle shut"';
+  const block = sessionBeatSummary([wrapped]);
+  assert.match(block, /Session beat variety/i);
+  assert.match(block, /superglued the booth kettle/i);
+  assert.match(block, /different physical\/comic beat type/i);
+});
+
+test('seedUserPrompt adds session beat variety when session tidbits exist', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
+  const sessionTidbits = ['Alpha told Beta, "word is Gamma hid glitter in Beta\'s mic windscreen"'];
+  const prompt = seedUserPrompt({
+    day: '2026-09-19',
+    roles,
+    register: RUMOR_REGISTERS[0],
+    existing: sessionTidbits,
+    sessionTidbits,
+  });
+  assert.match(prompt, /Session beat variety/i);
+  assert.match(prompt, /glitter in Beta's mic windscreen/i);
+  assert.match(prompt, /different physical\/comic beat type/i);
+  assert.doesNotMatch(prompt, /attached.?signage|labels?, signs, stickers/i);
+});
+
+test('seedUserPrompt omits session beat block when session is still empty', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
+  assert.doesNotMatch(prompt, /Session beat variety/i);
 });
 
 test('SEED_SYSTEM defers register choice to the user message', () => {

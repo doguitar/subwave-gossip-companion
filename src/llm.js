@@ -19,7 +19,31 @@ function withSoul(persona) {
   return soul ? `${named}\nSoul: ${soul}` : named;
 }
 
-export function seedUserPrompt({ houseRules = '', day, roles, register, existing = [], previousTidbit = '' }) {
+export function quotedRumorFromTidbit(tidbitText) {
+  const match = String(tidbitText || '').match(/,\s*"([\s\S]*)"\s*$/);
+  return match ? match[1] : '';
+}
+
+export function sessionBeatSummary(sessionTidbits = []) {
+  if (!sessionTidbits.length) return '';
+  const beats = sessionTidbits.map(quotedRumorFromTidbit).filter(Boolean);
+  if (!beats.length) return '';
+  const bullets = beats.map((beat, index) => `- Beat ${index + 1}: ${beat}`);
+  return `## Session beat variety
+Physical/comic setups already used in this generation session:
+${bullets.join('\n')}
+Choose a different physical/comic beat type than any setup above—not just new subjects or rephrased wording on the same stunt shape.`;
+}
+
+export function seedUserPrompt({
+  houseRules = '',
+  day,
+  roles,
+  register,
+  existing = [],
+  sessionTidbits = [],
+  previousTidbit = '',
+}) {
   const hearers = roles.hearers.length
     ? roles.hearers.map(withSoul).join('\n')
     : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
@@ -49,18 +73,22 @@ Write this rumor in that comic register only.
     roles.targets.length
       ? ' A rumor-target\'s instant reaction may complete the stunt when it is the same wrong moment—not a second rumor or moral.'
       : '';
+  const beatVariety = sessionBeatSummary(sessionTidbits);
+  const beatBlock = beatVariety ? `${beatVariety}\n\n` : '';
   return `Station day: ${day}
 
 Teller (already chosen): ${withSoul(roles.teller)}
 Hearers (already chosen): ${hearers}
 Rumor-targets (already chosen): ${targets}
-${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}${reactionHint}
+${evolution}${beatBlock}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}${reactionHint}
 
 ## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}
 
 Write a rumor whose subject, people, and comic beat are all new beside these:
-${avoid}`;
+${avoid}
+
+Within this generation session, pick a physical/comic beat type that is not already listed among beats used in this batch (when any are listed above).`;
 }
 
 export function extractJsonObject(raw) {
@@ -225,6 +253,7 @@ export async function generateSeed({
   roles,
   register,
   existing = [],
+  sessionTidbits = [],
   previousTidbit = '',
   fetchImpl = fetch,
   log,
@@ -240,7 +269,15 @@ export async function generateSeed({
     throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to generate gossip'), { code: 'CONFIG' });
   }
 
-  const user = seedUserPrompt({ houseRules, day, roles, register, existing, previousTidbit });
+  const user = seedUserPrompt({
+    houseRules,
+    day,
+    roles,
+    register,
+    existing,
+    sessionTidbits,
+    previousTidbit,
+  });
   log?.info?.(`[gossip] LLM prompt system:\n${systemPrompt}\n[gossip] LLM prompt user:\n${user}`);
   const request = buildLlmRequest({
     provider,
