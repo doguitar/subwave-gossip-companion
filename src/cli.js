@@ -4,7 +4,7 @@ import { SubwaveAdapter } from './subwave.js';
 import { createServer, listen } from './server.js';
 import { refreshGossip, seedGossip } from './seed.js';
 import { ingestSpoken } from './ingest.js';
-import { generateSeed } from './llm.js';
+import { generateReview, generateSeed } from './llm.js';
 import { createFollowupWatcher } from './followup.js';
 import { createLog } from './log.js';
 
@@ -62,7 +62,9 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       timezone: config.timezone,
       minLength: config.minRumorLength,
       log,
+      reviewRounds: config.reviewRounds,
       generate: (args) => generateSeed({ config, log, ...args }),
+      generateReview: (args) => generateReview({ config, log, ...args }),
     });
     log.info(`[gossip] seed result ${JSON.stringify(result)}`);
     return result;
@@ -77,7 +79,9 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       timezone: config.timezone,
       minLength: config.minRumorLength,
       log,
+      reviewRounds: config.reviewRounds,
       generate: (args) => generateSeed({ config, log, ...args }),
+      generateReview: (args) => generateReview({ config, log, ...args }),
     });
     log.info(`[gossip] refresh result ${JSON.stringify(result)}`);
     return result;

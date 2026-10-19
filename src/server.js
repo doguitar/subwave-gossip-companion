@@ -3,7 +3,7 @@ import { currentTidbits, gossipForActor } from './store.js';
 import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
-import { generateSeed } from './llm.js';
+import { generateReview, generateSeed } from './llm.js';
 
 async function readJsonBody(req) {
   const chunks = [];
@@ -38,6 +38,7 @@ export function buildTidbitPage(tidbits) {
 
 export function createServer({ store, adapter, config, log = console, watcher, generate, pickRoles }) {
   const generateFn = generate || ((args) => generateSeed({ config, log, ...args }));
+  const generateReviewFn = (args) => generateReview({ config, log, ...args });
   return http.createServer(async (req, res) => {
     try {
       if (store?.reload) await store.reload();
@@ -73,9 +74,12 @@ export function createServer({ store, adapter, config, log = console, watcher, g
           store,
           adapter,
           generate: generateFn,
+          generateReview: generateReviewFn,
+          reviewRounds: config.reviewRounds,
           cap: Number.isInteger(cap) && cap > 0 ? Math.min(cap, 10) : 1,
           historyGenerations: config.gossipHistoryGenerations,
           timezone: config.timezone,
+          minLength: config.minRumorLength,
           log,
           pickRoles,
         });
