@@ -172,6 +172,56 @@ test('generateSeed posts OpenAI-compatible chat completions and parses rumor', a
   assert.equal(result.rumor, 'word is the booth kettle whistled through the legal ID');
 });
 
+test('generateSeed does not write multi-line prompt bodies to the operational log', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'gossip-seed-log-'));
+  const operationalLogPath = path.join(base, 'logs', 'gossip.log');
+  const llmCallLogPath = path.join(base, 'logs', 'llm-calls.jsonl');
+  const log = createLog(operationalLogPath);
+  const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
+  const register = RUMOR_REGISTERS.find((r) => r.id === 'deadpan-absurdity');
+  const houseRules = 'House rules:\n- no real listener names\n- anti-repeat: do not echo prior rumors';
+  const systemPrompt = 'System soul\nwith multiple\nlines';
+
+  await generateSeed({
+    config: {
+      llmProvider: 'openai',
+      llmApiKey: 'sk-test',
+      llmModel: 'gpt-4o-mini',
+      openaiBaseUrl: 'https://openai.example/v1',
+      systemPrompt,
+      llmCallLogPath,
+    },
+    houseRules,
+    day: '2026-09-19',
+    roles,
+    register,
+    log,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"rumor":"word is the neon blinked twice"}' } }],
+      }),
+    }),
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const operational = await readFile(operationalLogPath, 'utf8');
+  const physicalLines = operational.split('\n').filter((line) => line.length > 0);
+  for (const line of physicalLines) {
+    assert.match(line, /^\[gossip\]/);
+    assert.equal(line.includes('\n'), false);
+  }
+  assert.ok(physicalLines.length >= 1);
+  assert.ok(!physicalLines.some((line) => line.includes('anti-repeat')));
+  assert.ok(!physicalLines.some((line) => line.includes('System soul')));
+
+  const llmLog = await readFile(llmCallLogPath, 'utf8');
+  const record = JSON.parse(llmLog.trim().split('\n').at(-1));
+  assert.equal(record.prompt.system, systemPrompt);
+  assert.match(record.prompt.user, /anti-repeat/);
+  assert.match(record.prompt.user, /House rules/);
+});
+
 test('parseLlmResponse reads Google and Anthropic payloads', () => {
   assert.equal(
     parseLlmResponse('google', {

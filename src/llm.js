@@ -278,7 +278,9 @@ export async function generateSeed({
     sessionTidbits,
     previousTidbit,
   });
-  log?.info?.(`[gossip] LLM prompt system:\n${systemPrompt}\n[gossip] LLM prompt user:\n${user}`);
+  log?.info?.(
+    `[gossip] LLM seed call starting provider=${provider} model=${model} day=${day} register=${register?.id ?? 'none'}`,
+  );
   const request = buildLlmRequest({
     provider,
     apiKey,
