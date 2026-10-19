@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 
 import path from 'node:path';
 
+import { loadGossipTypesFromPath } from './gossipTypes.js';
+
 const DEFAULT_PORT = 8080;
 const DEFAULT_SEED_CAP = 5;
 const DEFAULT_GOSSIP_HISTORY_GENERATIONS = 7;
@@ -103,11 +105,16 @@ export function loadConfig(env = process.env) {
   const llmCallLogPath = resolveBase(env.GOSSIP_LLM_CALL_LOG, path.join('logs', 'llm-calls.jsonl'));
   const operationalLogPath = resolveBase(env.GOSSIP_OPERATIONAL_LOG, path.join('logs', 'gossip.log'));
   const promptPath = resolveBase(env.GOSSIP_PROMPT_PATH, 'prompt.md');
+  const gossipTypesPath = resolveBase(env.GOSSIP_TYPES_PATH, 'gossip-types.json');
   let systemPrompt = '';
   try {
     systemPrompt = readFileSync(promptPath, 'utf8').trim();
   } catch (err) {
     if (err.code !== 'ENOENT') throw err;
+  }
+  const gossipTypesResult = loadGossipTypesFromPath(gossipTypesPath);
+  if (gossipTypesResult.errors?.length) {
+    errors.push(...gossipTypesResult.errors);
   }
   const refreshCountRaw = env.GOSSIP_REFRESH_COUNT ?? '1';
   const refreshCount = Number(refreshCountRaw);
@@ -120,6 +127,8 @@ export function loadConfig(env = process.env) {
   const config = {
     baseDir,
     promptPath,
+    gossipTypesPath,
+    rumorRegisters: gossipTypesResult.registers ?? [],
     systemPrompt,
     apiUrl,
     apiUser,

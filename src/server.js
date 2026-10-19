@@ -82,6 +82,7 @@ export function createServer({ store, adapter, config, log = console, watcher, g
           minLength: config.minRumorLength,
           log,
           pickRoles,
+          rumorRegisters: config.rumorRegisters,
         });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(result));

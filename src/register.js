@@ -1,4 +1,4 @@
-export const RUMOR_REGISTERS = [
+export const DEFAULT_RUMOR_REGISTERS = [
   {
     id: 'wacky-station-mishap',
     name: 'wacky station mishap',
@@ -25,7 +25,11 @@ export const RUMOR_REGISTERS = [
   },
 ];
 
-export function pickRumorRegister({ rng = Math.random } = {}) {
-  const index = Math.floor(rng() * RUMOR_REGISTERS.length);
-  return RUMOR_REGISTERS[Math.min(index, RUMOR_REGISTERS.length - 1)];
+/** @deprecated Use loaded config catalog or DEFAULT_RUMOR_REGISTERS in tests. */
+export const RUMOR_REGISTERS = DEFAULT_RUMOR_REGISTERS;
+
+export function pickRumorRegister({ catalog = DEFAULT_RUMOR_REGISTERS, rng = Math.random } = {}) {
+  const list = catalog?.length ? catalog : DEFAULT_RUMOR_REGISTERS;
+  const index = Math.floor(rng() * list.length);
+  return list[Math.min(index, list.length - 1)];
 }

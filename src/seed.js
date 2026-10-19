@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { rumorFromPayload } from './llm.js';
-import { pickRumorRegister } from './register.js';
+import { DEFAULT_RUMOR_REGISTERS, pickRumorRegister } from './register.js';
 import { hearerIdsForRoles, pickGossipRoles, rumorTargetSetKey, wrapRumor } from './roles.js';
 import {
   appendGeneratedGossipHistory,
@@ -150,13 +150,15 @@ export async function seedGossip({
   timezone,
   pickRoles,
   pickRegister,
+  rumorRegisters,
   sleep,
   minLength = 20,
   reviewRounds = 0,
   generateReview,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
-  const chooseRegister = pickRegister || pickRumorRegister;
+  const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
+  const chooseRegister = pickRegister || (() => pickRumorRegister({ catalog }));
   const [roster, houseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
@@ -256,13 +258,15 @@ export async function refreshGossip({
   timezone,
   pickRoles,
   pickRegister,
+  rumorRegisters,
   sleep,
   minLength = 20,
   reviewRounds = 0,
   generateReview,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
-  const chooseRegister = pickRegister || pickRumorRegister;
+  const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
+  const chooseRegister = pickRegister || (() => pickRumorRegister({ catalog }));
   const [roster, houseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
