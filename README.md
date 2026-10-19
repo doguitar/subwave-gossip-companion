@@ -7,7 +7,7 @@ A persona-aware fictional gossip companion for SUB/WAVE. It generates linked tel
 Copy `.env.example` to `.env` and set the Subwave credentials and LLM provider:
 
 ```dotenv
-GOSSIP_PROMPT_PATH=prompt.md
+GOSSIP_BASE_DIR=.
 GOSSIP_TYPES_PATH=gossip-types.json
 SUBWAVE_API_URL=https://your-station.example/api
 SUBWAVE_API_USER=admin
@@ -24,7 +24,7 @@ GOSSIP_REVIEW_ROUNDS=0
 
 `GOSSIP_REVIEW_ROUNDS` (default `0`, range `0`–`5`) runs optional post-generation **punch-up** passes after a successful seed or refresh batch. Each round sends every tidbit from that batch to the LLM for sharper humor and better cross-rumor continuity; teller/hearer persona ids and the told/said-on-air wrapper stay fixed. Higher values add latency and LLM cost. At `0`, behavior matches pre-review releases (no extra model calls).
 
-`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, gossip-type catalog, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Comic rumor registers (gossip types) live in `GOSSIP_TYPES_PATH` (default `gossip-types.json` under the base directory): a JSON array of objects with `slug` and `guidance` (optional `name`; otherwise the slug is humanized for display). On first run, if that file is missing, the companion writes the same four built-in registers shipped with the image. Duplicate slugs or an empty catalog fail startup. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`); each line is one physical log event with no embedded newlines. Accepted tidbits and review punch-up text changes (before→after quoted rumor) are echoed at `info` when generation or review succeeds; seed/review HTTP calls still log only one-line start summaries. Full system and user prompts for each LLM call are recorded in the active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`), which rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
+`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, gossip-type catalog, call-log, and operational-log paths resolve below it. The system prompt is always read from `prompt.md` in the workspace. On each start, the image-bundled prompt is written to `prompt.md.default` (overwriting any prior snapshot so upgrades refresh the reference copy without changing your live `prompt.md`). If `prompt.md` is missing or empty, it is seeded from that default before configuration loads. When trimmed `prompt.md` differs from trimmed `prompt.md.default`, startup emits one `[gossip]` warning line to the operational log (and console tee). Comic rumor registers (gossip types) live in `GOSSIP_TYPES_PATH` (default `gossip-types.json` under the base directory): a JSON array of objects with `slug` and `guidance` (optional `name`; otherwise the slug is humanized for display). On first run, if that file is missing, the companion writes the same four built-in registers shipped with the image. Duplicate slugs or an empty catalog fail startup. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`); each line is one physical log event with no embedded newlines. Accepted tidbits and review punch-up text changes (before→after quoted rumor) are echoed at `info` when generation or review succeeds; seed/review HTTP calls still log only one-line start summaries. Full system and user prompts for each LLM call are recorded in the active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`), which rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
 
 ## Station house rules and persona context
 
@@ -112,7 +112,7 @@ docker run --rm -p 8787:8787 \
   subwave-gossip-companion
 ```
 
-Put `prompt.md` and `gossip-types.json` in the mounted workspace, or set `GOSSIP_PROMPT_PATH` / `GOSSIP_TYPES_PATH` to other mounted paths. The container seeds both files on first run when they are missing. It sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, operator prompt/types files, the operational log, and the LLM call log.
+Put `prompt.md` and `gossip-types.json` in the mounted workspace, or set `GOSSIP_TYPES_PATH` to another path under the mount. The entrypoint refreshes `prompt.md.default` on every start and seeds `prompt.md` when it is missing or empty; the Node process applies the same rules for non-Docker runs. It sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, operator prompt/types files, the operational log, and the LLM call log.
 
 ## GitHub Container Registry
 
@@ -132,17 +132,3 @@ curl -fsSL https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/m
 ```
 
 Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials, and apply. The default host/container port is `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`.
-
-⚠ 1 unresolved conflict detected
-- ours = HEAD
-- theirs = origin/main
-NOTICE: Inspect a block by reading `conflict://<N>` (add `/ours` / `/theirs` / `/base` to render a single side). Resolve with `write({ path: "conflict://<N>", content })`, or bulk-resolve every registered conflict with `write({ path: "conflict://*", content })`. Writes replace ONLY the marker block (markers + all sides) — never repeat the lines before/after it; they stay in place.
-`content` shorthand: a line that is exactly `@ours` / `@theirs` / `@base` / `@both` expands to that recorded section. `@both` is ours-then-theirs with no separator — only for additive conflicts where each side adds something different; NEVER for competing edits of the same lines (pick a side or write the combined text). Lines that are not a token pass through verbatim, so `"// keep both\n@ours\n@theirs"` literally writes the comment, then ours, then theirs.
-Per-id bulk: `write({ path: "conflict://*", content: "1: @ours\n2: @theirs\n…" })` resolves each listed id with that side in ONE call — the cheapest way through many pick-one conflicts; unlisted ids stay registered.
-Resolve each block faithfully: keep one side (`@ours`/`@theirs`), or combine them when both intents apply — never invent content beyond the recorded sides, and never stack both sides of competing edits. Resolve several conflicts in a single turn by issuing multiple `write` calls at once; ids stay valid as earlier blocks are resolved.
-
-──── #1  L27-31 ────
-<<< ours
-`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, gossip-type catalog, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Comic rumor registers (gossip types) live in `GOSSIP_TYPES_PATH` (default `gossip-types.json` under the base directory): a JSON array of objects with `slug` and `guidance` (optional `name`; otherwise the slug is humanized for display). On first run, if that file is missing, the companion writes the same four built-in registers shipped with the image. Duplicate slugs or an empty catalog fail startup. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`); each line is one physical log event with no embedded newlines (seed generation logs only a one-line start summary). Full system and user prompts for each LLM call are recorded in the active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`), which rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
->>> theirs
-`GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, call-log, and operational-log paths resolve below it. The prompt is external configuration at `GOSSIP_PROMPT_PATH` and defaults to `prompt.md` below the base directory. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`); each line is one physical log event with no embedded newlines. Accepted tidbits and review punch-up text changes (before→after quoted rumor) are echoed at `info` when generation or review succeeds; seed/review HTTP calls still log only one-line start summaries. Full system and user prompts for each LLM call are recorded in the active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`), which rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
