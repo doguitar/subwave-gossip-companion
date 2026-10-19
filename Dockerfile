@@ -11,7 +11,6 @@ COPY . .
 
 ENV NODE_ENV=production \
     GOSSIP_BASE_DIR=/workspace \
-    GOSSIP_PROMPT_PATH=/workspace/prompt.md \
     GOSSIP_HOST=0.0.0.0 \
     GOSSIP_PORT=8080
 

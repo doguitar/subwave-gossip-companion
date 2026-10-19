@@ -1,4 +1,7 @@
+import path from 'node:path';
+
 import { applyDotEnv, requireConfig } from './config.js';
+import { ensurePromptWorkspace, warnIfPromptDrift } from './promptWorkspace.js';
 import { GossipStore } from './store.js';
 import { SubwaveAdapter } from './subwave.js';
 import { createServer, listen } from './server.js';
@@ -20,9 +23,12 @@ function applyCliOptions(argv, env) {
 }
 export async function main(argv = process.argv.slice(2), env = process.env) {
   applyCliOptions(argv, env);
+  const baseDir = path.resolve(env.GOSSIP_BASE_DIR || '.');
+  ensurePromptWorkspace(baseDir);
   const command = argv[0] || 'serve';
   const config = requireConfig(env);
   const log = createLog(config.operationalLogPath);
+  warnIfPromptDrift(config.baseDir, log);
   const store = new GossipStore(config.statePath);
   await store.load();
   log.info(`[gossip] storage ready path=${config.statePath} tidbits=${store.snapshot().tidbits.length}`);

@@ -104,7 +104,7 @@ export function loadConfig(env = process.env) {
   const llmFixturePath = env.GOSSIP_LLM_FIXTURE ? resolveBase(env.GOSSIP_LLM_FIXTURE, '') : '';
   const llmCallLogPath = resolveBase(env.GOSSIP_LLM_CALL_LOG, path.join('logs', 'llm-calls.jsonl'));
   const operationalLogPath = resolveBase(env.GOSSIP_OPERATIONAL_LOG, path.join('logs', 'gossip.log'));
-  const promptPath = resolveBase(env.GOSSIP_PROMPT_PATH, 'prompt.md');
+  const promptPath = path.join(baseDir, 'prompt.md');
   const gossipTypesPath = resolveBase(env.GOSSIP_TYPES_PATH, 'gossip-types.json');
   let systemPrompt = '';
   try {
