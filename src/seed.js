@@ -10,6 +10,7 @@ import {
   tidbitKey,
 } from './store.js';
 import { validateRumor } from './validate.js';
+import { formatRumorForOperationalLog } from './log.js';
 import { reviewGossipBatch } from './review.js';
 
 export function stationDay(now = new Date(), timeZone = 'UTC') {
@@ -69,7 +70,13 @@ async function generateOne({
       });
       const rumor = rumorFromPayload(payload);
       const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: 240 });
-      if (check.ok) return { ok: true, tidbit: tidbitFromRoles(roles, rumor, createdAt) };
+      if (check.ok) {
+        const tidbit = tidbitFromRoles(roles, rumor, createdAt);
+        log.info?.(
+          `[gossip] tidbit accepted id=${tidbit.id} text=${formatRumorForOperationalLog(tidbit.text)}`,
+        );
+        return { ok: true, tidbit };
+      }
       lastReason = check.reason;
       log.warn?.(`[gossip] rumor rejected attempt=${attempt}/${maxAttempts}: ${check.reason}`);
     } catch (err) {

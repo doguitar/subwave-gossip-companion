@@ -1,4 +1,5 @@
 import { quotedRumorFromTidbit } from './llm.js';
+import { formatRumorForOperationalLog } from './log.js';
 import { wrapRumor } from './roles.js';
 import { tidbitKey } from './store.js';
 import { validateRumor } from './validate.js';
@@ -17,7 +18,7 @@ export function rolesFromTidbit(tidbit, roster) {
   return { teller, hearers, targets };
 }
 
-export function applyReviewRevisions(tidbits, revisions, rolesById, roster, { minLength = 20, log } = {}) {
+export function applyReviewRevisions(tidbits, revisions, rolesById, roster, { minLength = 20, log, round } = {}) {
   const keys = new Set();
   let accepted = 0;
   let rejected = 0;
@@ -53,6 +54,13 @@ export function applyReviewRevisions(tidbits, revisions, rolesById, roster, { mi
     }
     accepted += 1;
     keys.add(key);
+    if (tidbit.text !== text) {
+      const before = quotedRumorFromTidbit(tidbit.text);
+      const roundSuffix = round != null ? ` round=${round}` : '';
+      log?.info?.(
+        `[gossip] review revised tidbit=${tidbit.id}${roundSuffix} rumor=${formatRumorForOperationalLog(before)} -> ${formatRumorForOperationalLog(rumor)}`,
+      );
+    }
     return candidate;
   });
   return { tidbits: next, accepted, rejected };
@@ -92,7 +100,7 @@ export async function reviewGossipBatch({
         totalRounds: reviewRounds,
       });
       const revisions = reviewRumorsFromPayload(payload, current);
-      const merged = applyReviewRevisions(current, revisions, rolesById, roster, { minLength, log });
+      const merged = applyReviewRevisions(current, revisions, rolesById, roster, { minLength, log, round });
       current = merged.tidbits;
       roundsCompleted = round;
       log.info?.(
