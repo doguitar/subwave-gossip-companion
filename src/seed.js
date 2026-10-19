@@ -34,7 +34,21 @@ function tidbitFromRoles(roles, rumor, createdAt) {
   };
 }
 
-async function generateOne({ generate, roster, houseRules = '', roles, register, day, existing, previousTidbit = '', createdAt, log, sleep = defaultSleep, minLength = 20 }) {
+async function generateOne({
+  generate,
+  roster,
+  houseRules = '',
+  roles,
+  register,
+  day,
+  existing,
+  sessionTidbits = [],
+  previousTidbit = '',
+  createdAt,
+  log,
+  sleep = defaultSleep,
+  minLength = 20,
+}) {
   const maxAttempts = 3;
   let lastReason = 'empty-text';
   let attempt = 0;
@@ -48,6 +62,7 @@ async function generateOne({ generate, roster, houseRules = '', roles, register,
         roles,
         register,
         existing,
+        sessionTidbits,
         previousTidbit,
         attempt,
       });
@@ -170,6 +185,7 @@ export async function seedGossip({
       register,
       day,
       existing: [...retainedHistory, ...sessionTexts],
+      sessionTidbits: sessionTexts,
       createdAt,
       log,
       sleep,
@@ -255,6 +271,7 @@ export async function refreshGossip({
       register,
       day,
       existing: [...retainedHistory, ...tidbits.map((t) => t.text)],
+      sessionTidbits: tidbits.map((t) => t.text),
       createdAt,
       log,
       sleep,
