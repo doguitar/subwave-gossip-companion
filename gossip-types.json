@@ -1,22 +1,72 @@
 [
   {
-    "slug": "wacky-station-mishap",
-    "name": "wacky station mishap",
-    "guidance": "Slapstick station chaos: runaway carts, dead air, props in the wrong rack, booth gear acting possessed. Vary the physical gag rumor to rumor; the wrong detail is loud and physical, not clever wordplay."
+    "slug": "on-air-shenanigans",
+    "name": "Live Show Antics Rumored",
+    "guidance": "Speculation about what happens off-mic during live broadcasts"
   },
   {
-    "slug": "deadpan-absurdity",
-    "name": "deadpan absurdity",
-    "guidance": "Flat, matter-of-fact delivery of impossible station details: wrong inventory counts, clocks that disagree, furniture in the wrong room. No winking; the teller reports the absurd detail like a weather note."
+    "slug": "secret-lives-exposed",
+    "name": "Behind the Scenes of DJ Personalities",
+    "guidance": "Rumors that on-air personas hide deeper issues"
   },
   {
-    "slug": "petty-feud",
-    "name": "petty feud",
-    "guidance": "Small-stakes grudge energy: stolen mugs, hogged mics, swapped booth props, locker sabotage, parking-spot wars, gear hoarding. Keep the sting personal and ridiculous; pick a fresh petty stunt flavor each rumor."
+    "slug": "public-image-mismatch",
+    "name": "Station Stars' Hidden Truths",
+    "guidance": "Rumors that public personas don't match private lives"
   },
   {
-    "slug": "bawdy",
-    "name": "bawdy",
-    "guidance": "Cheeky innuendo and flirtatious hallway talk without graphic detail: closet whispers, booth-door gossip, suggestive prop mix-ups. The laugh is suggestive, not explicit."
+    "slug": "mysterious-mic-disasters",
+    "name": "Technical Takedowns of DJs",
+    "guidance": "Rumors about equipment sabotage"
+  },
+  {
+    "slug": "strange-sponsor-deals",
+    "name": "Weird Corporate Partnerships",
+    "guidance": "Rumors of bizarre promotional tie-ins with unexpected brands"
+  },
+  {
+    "slug": "secret-situations",
+    "name": "Hidden Relationships/Bisexual/Polyamorous Scandals",
+    "guidance": "Salacious and graphic"
+  },
+  {
+    "slug": "career-ambitions",
+    "name": "Backstabbing for On-Air Success",
+    "guidance": "DJs secretly working against each other to get ahead in station hierarchy"
+  },
+  {
+    "slug": "unprofessional-behavior",
+    "name": "On-Air Meltdowns & Unchecked Egos",
+    "guidance": "DJs ranting on air"
+  },
+  {
+    "slug": "public-display",
+    "name": "Public sexual activity in the Studio",
+    "guidance": "DJs having explicit sexual activities in front of others"
+  },
+  {
+    "slug": "backstage-bathroom-behavior",
+    "name": "Venue Sanitation Rumors",
+    "guidance": "Emphasize shared access and disgusting conditions"
+  },
+  {
+    "slug": "station-snack-fiasco",
+    "name": "Gross Food in the Break Room",
+    "guidance": "Focus on unappetizing leftovers, potential health code violations"
+  },
+  {
+    "slug": "mysterious-studio-pest",
+    "name": "Uninvited Radio Room Resident",
+    "guidance": "Explore bizarre animal intrusions, unexplained sounds"
+  },
+  {
+    "slug": "paranormal-activity-signs",
+    "name": "Unsettling Station Phenomena",
+    "guidance": "Focus on bizarre occurrences that can't be explained through natural means"
+  },
+  {
+    "slug": "ghostly-station-visitor",
+    "name": "Mysterious Late Night Presence",
+    "guidance": "Explore reports of unseen individuals at night, potential presence in off-limits areas"
   }
 ]

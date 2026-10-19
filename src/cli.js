@@ -7,7 +7,7 @@ import { SubwaveAdapter } from './subwave.js';
 import { createServer, listen } from './server.js';
 import { refreshGossip, seedGossip } from './seed.js';
 import { ingestSpoken } from './ingest.js';
-import { generateReview, generateSeed } from './llm.js';
+import { generateReview, generateSeed, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
 import { createFollowupWatcher } from './followup.js';
 import { createLog } from './log.js';
 
@@ -20,6 +20,31 @@ function applyCliOptions(argv, env) {
   const baseDir = baseDirFromArgs(argv);
   if (baseDir) env.GOSSIP_BASE_DIR = baseDir;
   applyDotEnv(baseDir ? `${baseDir}/.env` : undefined, env);
+}
+
+function flagValue(argv, name) {
+  const index = argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = argv[index + 1];
+  if (!value || value.startsWith('--')) {
+    throw new Error(`${name} needs a value`);
+  }
+  return value;
+}
+
+export function generateOptions(argv, config) {
+  const reasoning = flagValue(argv, '--reasoning');
+  const reviewSteps = flagValue(argv, '--review-steps');
+  const runConfig = reasoning === undefined ? config : { ...config, llmThinkingLevel: reasoning };
+  let reviewRounds = config.reviewRounds;
+  if (reviewSteps !== undefined) {
+    const rounds = Number(reviewSteps);
+    if (!Number.isInteger(rounds) || rounds < 0 || rounds > 5) {
+      throw new Error('--review-steps must be an integer 0-5');
+    }
+    reviewRounds = rounds;
+  }
+  return { runConfig, reviewRounds };
 }
 export async function main(argv = process.argv.slice(2), env = process.env) {
   applyCliOptions(argv, env);
@@ -59,6 +84,32 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return { server, store, adapter, config };
   }
 
+  if (command === 'generate') {
+    const { runConfig, reviewRounds } = generateOptions(argv, config);
+    const before = new Set(store.snapshot().tidbits.map((tidbit) => tidbit.id));
+    const result = await seedGossip({
+      store,
+      adapter,
+      cap: config.seedCap,
+      historyGenerations: config.gossipHistoryGenerations,
+      timezone: config.timezone,
+      minLength: config.minRumorLength,
+      log,
+      reviewRounds,
+      rumorRegisters: config.rumorRegisters,
+      generate: (args) => generateSeed({ config: runConfig, log, ...args }),
+      generateReview: (args) => generateReview({ config: runConfig, log, ...args }),
+      summarizeSouls: (personas) => summarizePersonaSouls({ config: runConfig, personas, log }),
+      summarizeHouseRules: (rules) => summarizeHouseRules({ config: runConfig, houseRules: rules, log }),
+    });
+    const fresh = store.snapshot().tidbits.filter((tidbit) => !before.has(tidbit.id));
+    for (const tidbit of fresh) {
+      console.log(tidbit.text);
+    }
+    log.info(`[gossip] generate result ${JSON.stringify({ ...result, reviewRounds, reasoning: runConfig.llmThinkingLevel || '' })}`);
+    return result;
+  }
+
   if (command === 'seed' || command === 'gossip:seed') {
     const result = await seedGossip({
       store,
@@ -72,6 +123,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config, log, ...args }),
       generateReview: (args) => generateReview({ config, log, ...args }),
+      summarizeSouls: (personas) => summarizePersonaSouls({ config, personas, log }),
+      summarizeHouseRules: (rules) => summarizeHouseRules({ config, houseRules: rules, log }),
     });
     log.info(`[gossip] seed result ${JSON.stringify(result)}`);
     return result;
@@ -90,9 +143,24 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config, log, ...args }),
       generateReview: (args) => generateReview({ config, log, ...args }),
+      summarizeSouls: (personas) => summarizePersonaSouls({ config, personas, log }),
+      summarizeHouseRules: (rules) => summarizeHouseRules({ config, houseRules: rules, log }),
     });
     log.info(`[gossip] refresh result ${JSON.stringify(result)}`);
     return result;
+  }
+
+  if (command === 'summarize-souls') {
+    const { runConfig } = generateOptions(argv, config);
+    const roster = await adapter.getRosterPersonas();
+    const houseRules = adapter.getHouseRules ? await adapter.getHouseRules() : '';
+    const rulesSummary = await summarizeHouseRules({ config: runConfig, houseRules, log });
+    if (rulesSummary) console.log(`House rules\n${rulesSummary}\n`);
+    const summaries = await summarizePersonaSouls({ config: runConfig, personas: roster, log });
+    for (const item of summaries) {
+      console.log(`${item.name}\n${item.summary}\n`);
+    }
+    return summaries;
   }
 
   if (command === 'ingest-spoken' || command === 'gossip:ingest-spoken') {
@@ -101,7 +169,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return result;
   }
 
-  throw new Error(`Unknown command: ${command}. Use serve | seed | refresh | ingest-spoken`);
+  throw new Error(`Unknown command: ${command}. Use serve | generate | summarize-souls | seed | refresh | ingest-spoken`);
 }
 
 if (import.meta.url === `file://${process.argv[1].replaceAll('\\', '/')}` || process.argv[1]?.endsWith('cli.js')) {

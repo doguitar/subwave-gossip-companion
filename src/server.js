@@ -3,7 +3,7 @@ import { currentTidbits, gossipForActor } from './store.js';
 import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
-import { generateReview, generateSeed } from './llm.js';
+import { generateReview, generateSeed, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
 
 async function readJsonBody(req) {
   const chunks = [];
@@ -75,6 +75,8 @@ export function createServer({ store, adapter, config, log = console, watcher, g
           adapter,
           generate: generateFn,
           generateReview: generateReviewFn,
+          summarizeSouls: (personas) => summarizePersonaSouls({ config, personas, log }),
+          summarizeHouseRules: (rules) => summarizeHouseRules({ config, houseRules: rules, log }),
           reviewRounds: config.reviewRounds,
           cap: Number.isInteger(cap) && cap > 0 ? Math.min(cap, 10) : 1,
           historyGenerations: config.gossipHistoryGenerations,

@@ -19,7 +19,7 @@ import {
 } from '../src/callLog.js';
 import { loadConfig } from '../src/config.js';
 import { createLog, formatRumorForOperationalLog } from '../src/log.js';
-import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse } from '../src/llm.js';
+import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse, soulSummaryUserPrompt, summarizeHouseRules, summarizePersonaSouls } from '../src/llm.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { PERSONA_A, PERSONA_B } from './helpers.js';
 
@@ -218,6 +218,32 @@ test('buildLlmRequest omits thinking fields when level is off', () => {
 
   const anthropic = buildLlmRequest({ ...common, provider: 'anthropic' });
   assert.equal(anthropic.body.output_config, undefined);
+});
+
+test('buildLlmRequest maps openai on and off to supported reasoning_effort values', () => {
+  const on = buildLlmRequest({
+    provider: 'openai',
+    apiKey: 'k',
+    model: 'm',
+    openaiBaseUrl: 'http://127.0.0.1:11234/v1',
+    system: 'sys',
+    user: 'usr',
+    thinkingLevel: 'on',
+  });
+  assert.equal(on.body.reasoning_effort, 'high');
+  assert.deepEqual(on.body.thinking, { type: 'enabled', level: 'high' });
+
+  const off = buildLlmRequest({
+    provider: 'openai',
+    apiKey: 'k',
+    model: 'm',
+    openaiBaseUrl: 'http://127.0.0.1:11234/v1',
+    system: 'sys',
+    user: 'usr',
+    thinkingLevel: 'off',
+  });
+  assert.equal(off.body.reasoning_effort, 'none');
+  assert.equal(off.body.thinking, undefined);
 });
 
 test('buildLlmRequest maps thinking level per provider when on', () => {
@@ -453,4 +479,60 @@ test('appendLlmCall deletes rolled segments older than seven days', async () => 
   const names = await readdir(dir);
   assert.equal(names.includes('llm-calls.1111111111111.jsonl'), false);
   assert.equal(names.includes('llm-calls.jsonl'), true);
+});
+
+test('summarizePersonaSouls asks for rumor-relevant compression and returns each summary', async () => {
+  const persona = { ...PERSONA_A, soul: 'Long musical essay. Speech tic: stoked. Habit: pockets the spare headphones.' };
+  const seen = [];
+  const summaries = await summarizePersonaSouls({
+    config: {
+      llmProvider: 'openai',
+      llmApiKey: 'sk-test',
+      llmModel: 'gpt-4o-mini',
+      openaiBaseUrl: 'https://openai.example/v1',
+    },
+    personas: [persona],
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      seen.push(body);
+      assert.equal(url, 'https://openai.example/v1/chat/completions');
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '{"summary":"Pockets the spare headphones. Says stoked."}' } }] }),
+      };
+    },
+  });
+  assert.match(seen[0].messages[0].content, /rumor generator/);
+  assert.match(seen[0].messages[1].content, /pockets the spare headphones/i);
+  assert.equal(soulSummaryUserPrompt(persona).includes(PERSONA_A.name), true);
+  assert.deepEqual(summaries, [{ id: persona.id, name: persona.name, summary: 'Pockets the spare headphones. Says stoked.' }]);
+});
+
+test('summarizeHouseRules keeps setting and language limits', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-'));
+  const logPath = path.join(dir, 'llm-calls.jsonl');
+  const summary = await summarizeHouseRules({
+    config: {
+      llmProvider: 'openai',
+      llmApiKey: 'sk-test',
+      llmModel: 'gpt-4o-mini',
+      openaiBaseUrl: 'https://openai.example/v1',
+      llmCallLogPath: logPath,
+    },
+    houseRules: 'Pirate station on a garbage boat. Adult audience. Spell out numbers. Show transitions should be abrupt.',
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      assert.match(body.messages[0].content, /hallway rumor/);
+      assert.match(body.messages[1].content, /garbage boat/);
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '{"summary":"Garbage-boat pirate station. Adult language is allowed."}' } }] }),
+      };
+    },
+  });
+  assert.equal(summary, 'Garbage-boat pirate station. Adult language is allowed.');
+  const logged = JSON.parse(await readFile(logPath, 'utf8'));
+  assert.equal(logged.kind, 'house-rules-summary');
+  assert.equal(logged.request.headers.Authorization, '[redacted]');
+  assert.equal(await summarizeHouseRules({ config: {}, houseRules: '   ' }), '');
 });

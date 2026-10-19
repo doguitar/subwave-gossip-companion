@@ -22,6 +22,62 @@ const onAir = {
   targets: [],
 };
 
+test('seed attaches rumor summaries before generation', async () => {
+  const { store } = await tempStore();
+  const adapter = stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] });
+  let seenSoul = '';
+  await seedGossip({
+    store,
+    adapter,
+    pickRoles: () => hallway,
+    summarizeSouls: async (personas) => {
+      assert.equal(personas.length, 3);
+      return personas.map((persona) => ({ id: persona.id, name: persona.name, summary: `${persona.name} pockets a fader` }));
+    },
+    generate: async ({ roles }) => {
+      seenSoul = roles.teller.soul || '';
+      assert.equal(roles.teller.rumorSummary, 'Alpha pockets a fader');
+      assert.equal(roles.targets[0].rumorSummary, 'Gamma pockets a fader');
+      const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
+      assert.match(prompt, /Summary: Alpha pockets a fader/);
+      assert.doesNotMatch(prompt, /Soul:/);
+      return { rumor: 'word is Gamma hid a cart behind the legal ID again' };
+    },
+    cap: 1,
+    historyGenerations: 0,
+    now: new Date('2026-09-19T08:00:00.000Z'),
+    timezone: 'UTC',
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(seenSoul.includes('pockets a fader'), false);
+});
+
+test('seed uses the summarized house rules in generation', async () => {
+  const { store } = await tempStore();
+  const adapter = stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] });
+  adapter.getHouseRules = async () => 'Full house rules about song transitions and the garbage boat.';
+  let seenRules = '';
+  await seedGossip({
+    store,
+    adapter,
+    pickRoles: () => onAir,
+    summarizeHouseRules: async (rules) => {
+      assert.match(rules, /garbage boat/);
+      return 'Garbage-boat station. Adult audience.';
+    },
+    generate: async ({ houseRules }) => {
+      seenRules = houseRules;
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+    },
+    cap: 1,
+    historyGenerations: 0,
+    now: new Date('2026-09-19T08:00:00.000Z'),
+    timezone: 'UTC',
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(seenRules, 'Garbage-boat station. Adult audience.');
+});
+
 test('seed uses pre-picked roles and skips duplicate rumor wraps', async () => {
   const { store, read } = await tempStore();
   const adapter = stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] });
@@ -521,9 +577,8 @@ test('seed adds stronger beat-variety steering when mocks repeat the same stunt 
       calls += 1;
       if (sessionTidbits.length > 0) {
         const prompt = seedUserPrompt({ day, roles, register, existing, sessionTidbits });
-        assert.match(prompt, /Session beat variety/i);
-        assert.match(prompt, /superglued the kettle shut/i);
-        assert.match(prompt, /different physical\/comic beat type/i);
+        assert.doesNotMatch(prompt, /Session beat variety/i);
+        assert.doesNotMatch(prompt, /superglued the kettle shut/i);
       }
       const rumor = calls === 1
         ? 'word is Gamma superglued the kettle shut'

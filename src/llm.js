@@ -13,10 +13,31 @@ export const DEFAULT_MODELS = {
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 
-function withSoul(persona) {
-  const soul = personaSoul(persona);
+function promptPersona(persona) {
   const named = `${persona.name} (${persona.id})`;
+  const summary = String(persona?.rumorSummary || '').trim();
+  if (summary) return `${named}\nSummary: ${summary}`;
+  const soul = personaSoul(persona);
   return soul ? `${named}\nSoul: ${soul}` : named;
+}
+
+export const SOUL_SUMMARY_SYSTEM = `You compress a radio persona soul into the parts a rumor generator needs.
+Return JSON only: {"summary":"<one short paragraph>"}
+Keep the identity, one speech tic, physical booth habits, props they touch, and relationships that would show up in a hallway rumor.
+Drop musical essays, broadcast rules, avoidances, and instructions about how to host a show.`;
+
+export const HOUSE_RULES_SUMMARY_SYSTEM = `You compress radio-station house rules into the parts a rumor generator needs.
+Return JSON only: {"summary":"<one short paragraph>"}
+Keep the station setting, the audience, and the language limits that change what a hallway rumor can say.
+Drop show-transition instructions, vocal-event markup, and rules about how to host a song.`;
+
+export function houseRulesSummaryUserPrompt(houseRules) {
+  return `House rules:\n${String(houseRules || '').trim() || '(no house rules)'}`;
+}
+
+export function soulSummaryUserPrompt(persona) {
+  const soul = personaSoul(persona);
+  return `Name: ${persona?.name || 'unknown'}\nSoul:\n${soul || '(no soul)'}`;
 }
 
 export function quotedRumorFromTidbit(tidbitText) {
@@ -24,15 +45,8 @@ export function quotedRumorFromTidbit(tidbitText) {
   return match ? match[1] : '';
 }
 
-export function sessionBeatSummary(sessionTidbits = []) {
-  if (!sessionTidbits.length) return '';
-  const beats = sessionTidbits.map(quotedRumorFromTidbit).filter(Boolean);
-  if (!beats.length) return '';
-  const bullets = beats.map((beat, index) => `- Beat ${index + 1}: ${beat}`);
-  return `## Session beat variety
-Physical/comic setups already used in this generation session:
-${bullets.join('\n')}
-Choose a different physical/comic beat type than any setup above—not just new subjects or rephrased wording on the same stunt shape.`;
+export function sessionBeatSummary() {
+  return '';
 }
 
 export function seedUserPrompt({
@@ -40,21 +54,11 @@ export function seedUserPrompt({
   day,
   roles,
   register,
-  existing = [],
-  sessionTidbits = [],
   previousTidbit = '',
 }) {
-  const hearers = roles.hearers.length
-    ? roles.hearers.map(withSoul).join('\n')
-    : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
-  const sharedBeat =
-    roles.targets.length === 2
-      ? ' The rumor MUST be one shared beat: both targets\' actions belong to the same moment (interaction, shared place, or clear cause-and-effect), not parallel unrelated vignettes.'
-      : '';
   const targets = roles.targets.length
-    ? `${roles.targets.map(withSoul).join('\n')} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}.${sharedBeat}`
+    ? `${roles.targets.map(promptPersona).join('\n')} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}.`
     : '(none — station-life only; name no persona)';
-  const avoid = existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)';
   const evolution = previousTidbit
     ? `\n## Telephone-chain source\nPreceding telling:\n${previousTidbit}\nRetell this same rumor as one telephone-game step: keep its core subject and thread, and add one believable distortion or embellishment.\n`
     : '';
@@ -65,30 +69,14 @@ Write this rumor in that comic register only.
 
 `
     : '';
-  const plausibility =
-    roles.targets.length
-      ? ' If the beat is private or salacious, phrase it so this teller could plausibly repeat it to these hearers—credible sourcing in the quote is allowed when the system rules say so.'
-      : '';
-  const reactionHint =
-    roles.targets.length
-      ? ' A rumor-target\'s instant reaction may complete the stunt when it is the same wrong moment—not a second rumor or moral.'
-      : '';
-  const beatVariety = sessionBeatSummary(sessionTidbits);
-  const beatBlock = beatVariety ? `${beatVariety}\n\n` : '';
-  return `Station day: ${day}
-
-Teller (already chosen): ${withSoul(roles.teller)}
-Hearers (already chosen): ${hearers}
-Rumor-targets (already chosen): ${targets}
-${evolution}${beatBlock}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}${reactionHint}
-
-## DJ house rules
+  return `## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}
 
-Write a rumor whose subject, people, and comic beat are all new beside these:
-${avoid}
+Station day: ${day}
 
-Within this generation session, pick a physical/comic beat type that is not already listed among beats used in this batch (when any are listed above).`;
+Teller (already chosen): ${promptPersona(roles.teller)}
+Rumor-targets (already chosen): ${targets}
+${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.`;
 }
 
 export function extractJsonObject(raw) {
@@ -140,19 +128,18 @@ function firstBalancedObject(text, start) {
   return null;
 }
 
-export const REVIEW_SYSTEM = `You refine quoted hallway rumors for a fictional radio station gossip batch.
-Return JSON only. Revise quoted rumor strings for sharper humor and better continuity across the batch.
-Do not change who told whom, persona names in the wrapper, or the telephone-chain roles.
-Each value must be only the inner quoted rumor text—not the "told" / "said on air" wrapper.
-Keep one comic beat per rumor; no "and now" or "get this" pivot phrases.
-When rumor-targets are listed for a tidbit, keep their exact display names in that rumor.`;
+export const REVIEW_SYSTEM = `You edit quoted hallway rumors for a fictional radio station.
+Return JSON only. Each value is only the inner quoted rumor, not the "told" / "said on air" wrapper.
+Make the rumor coherent. A listener must be able to follow who did what, and the result must follow from that action.
+Remove non-sequiturs: a second image, a punchline, or a clause that does not follow from the cause.
+Keep the same people, the same prop, and the same event. Do not add facts to fill a gap; cut the part that does not connect.
+One sentence, 20 to 240 characters.
+The teller's name stays out of the quote. Keep every listed rumor-target's exact display name.
+Done when every clause follows from the one before it.`;
 
 export function reviewUserPrompt({ houseRules = '', day, tidbits = [], round = 1, totalRounds = 1 }) {
   const lines = tidbits.map((t, index) => {
     const roles = t.roles;
-    const hearers = roles?.hearers?.length
-      ? roles.hearers.map((p) => `${p.name} (${p.id})`).join(', ')
-      : '(said on air — no hearers)';
     const targets = roles?.targets?.length
       ? roles.targets.map((p) => `${p.name} (${p.id})`).join(', ')
       : '(station-life — no persona targets)';
@@ -162,7 +149,6 @@ export function reviewUserPrompt({ houseRules = '', day, tidbits = [], round = 1
     return `### Tidbit ${index + 1}
 id: ${t.id}
 Teller: ${roles?.teller?.name ?? '?'} (${roles?.teller?.id ?? '?'})
-Hearers: ${hearers}
 Rumor-targets: ${targets}
 ${register}
 Current quoted rumor: ${t.quotedRumor || quotedRumorFromTidbit(t.text)}`;
@@ -170,7 +156,7 @@ Current quoted rumor: ${t.quotedRumor || quotedRumorFromTidbit(t.text)}`;
   return `Station day: ${day}
 Review round: ${round} of ${totalRounds}
 
-Refine every tidbit below for humor and cross-rumor continuity within this batch only.
+Edit every quoted rumor so it is one coherent scene. Remove non-sequiturs. Keep its facts. Do not add people, props, events, or explanations.
 Return JSON shaped as { "rumors": { "<tidbit id>": "<revised quoted rumor>" } } with one entry per id.
 
 ## DJ house rules
@@ -202,6 +188,15 @@ function openaiChatUrl(baseUrl) {
 function normalizedThinkingLevel(thinkingLevel) {
   const value = typeof thinkingLevel === 'string' ? thinkingLevel.trim() : '';
   return value.length ? value : undefined;
+}
+
+function openaiReasoningEffort(thinkingLevel) {
+  const value = normalizedThinkingLevel(thinkingLevel);
+  if (!value) return undefined;
+  const lowered = value.toLowerCase();
+  if (lowered === 'on' || lowered === 'enabled' || lowered === 'true') return 'high';
+  if (lowered === 'off' || lowered === 'false') return 'none';
+  return value;
 }
 
 export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system, user, thinkingLevel }) {
@@ -263,10 +258,11 @@ export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system
       { role: 'user', content: user },
     ],
   };
-  if (thinking) {
-    openaiBody.reasoning_effort = thinking;
-    if (!official) {
-      openaiBody.thinking = { type: 'enabled', level: thinking };
+  const effort = openaiReasoningEffort(thinking);
+  if (effort) {
+    openaiBody.reasoning_effort = effort;
+    if (!official && effort !== 'none') {
+      openaiBody.thinking = { type: 'enabled', level: effort };
     }
   }
   return {
@@ -301,6 +297,135 @@ export function parseLlmResponse(provider, data) {
   }
   const content = data?.choices?.[0]?.message?.content;
   return extractJsonObject(content ?? data);
+}
+
+async function recordLlmCall(config, { kind, provider, model, request, prompt, response }) {
+  await appendLlmCall(config.llmCallLogPath, {
+    at: new Date().toISOString(),
+    kind,
+    provider,
+    model,
+    url: request.url,
+    request: {
+      headers: {
+        ...request.headers,
+        'x-goog-api-key': request.headers['x-goog-api-key'] ? '[redacted]' : undefined,
+        Authorization: request.headers.Authorization ? '[redacted]' : undefined,
+        'x-api-key': request.headers['x-api-key'] ? '[redacted]' : undefined,
+      },
+      body: request.body,
+    },
+    prompt,
+    response,
+  });
+}
+
+export async function summarizePersonaSouls({
+  config,
+  personas = [],
+  fetchImpl = fetch,
+  log,
+}) {
+  const provider = config.llmProvider || 'openai';
+  const apiKey = config.llmApiKey;
+  const model = config.llmModel || DEFAULT_MODELS[provider] || DEFAULT_MODELS.openai;
+  const openaiBaseUrl = config.openaiBaseUrl || config.llmUrl || DEFAULT_OPENAI_BASE_URL;
+  const localOpenAI = provider === 'openai' && !/api\.openai\.com/i.test(openaiBaseUrl);
+  if (!apiKey && !localOpenAI) {
+    throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to summarize souls'), { code: 'CONFIG' });
+  }
+  const summaries = [];
+  for (const persona of personas) {
+    log?.info?.(`[gossip] soul summary starting name=${persona?.name || persona?.id}`);
+    const request = buildLlmRequest({
+      provider,
+      apiKey,
+      model,
+      openaiBaseUrl,
+      system: SOUL_SUMMARY_SYSTEM,
+      user: soulSummaryUserPrompt(persona),
+      thinkingLevel: config.llmThinkingLevel,
+    });
+    if (request.body && provider === 'openai') request.body.max_tokens = 2000;
+    const res = await fetchImpl(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      const error = new Error(`LLM soul summary failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
+      error.status = res.status;
+      throw error;
+    }
+    const data = await res.json();
+    await recordLlmCall(config, {
+      kind: 'soul-summary',
+      provider,
+      model,
+      request,
+      prompt: { system: SOUL_SUMMARY_SYSTEM, user: soulSummaryUserPrompt(persona) },
+      response: data,
+    });
+    const payload = parseLlmResponse(provider, data);
+    const summary = String(payload?.summary || '').trim();
+    if (!summary) throw new Error(`LLM soul summary for ${persona?.name || persona?.id} was empty`);
+    summaries.push({ id: persona.id, name: persona.name, summary });
+  }
+  return summaries;
+}
+
+export async function summarizeHouseRules({
+  config,
+  houseRules = '',
+  fetchImpl = fetch,
+  log,
+}) {
+  const text = String(houseRules || '').trim();
+  if (!text) return '';
+  const provider = config.llmProvider || 'openai';
+  const apiKey = config.llmApiKey;
+  const model = config.llmModel || DEFAULT_MODELS[provider] || DEFAULT_MODELS.openai;
+  const openaiBaseUrl = config.openaiBaseUrl || config.llmUrl || DEFAULT_OPENAI_BASE_URL;
+  const localOpenAI = provider === 'openai' && !/api\.openai\.com/i.test(openaiBaseUrl);
+  if (!apiKey && !localOpenAI) {
+    throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to summarize house rules'), { code: 'CONFIG' });
+  }
+  log?.info?.('[gossip] house rules summary starting');
+  const request = buildLlmRequest({
+    provider,
+    apiKey,
+    model,
+    openaiBaseUrl,
+    system: HOUSE_RULES_SUMMARY_SYSTEM,
+    user: houseRulesSummaryUserPrompt(text),
+    thinkingLevel: config.llmThinkingLevel,
+  });
+  if (request.body && provider === 'openai') request.body.max_tokens = 2000;
+  const res = await fetchImpl(request.url, {
+    method: 'POST',
+    headers: request.headers,
+    body: JSON.stringify(request.body),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    const error = new Error(`LLM house rules summary failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
+    error.status = res.status;
+    throw error;
+  }
+  const data = await res.json();
+  await recordLlmCall(config, {
+    kind: 'house-rules-summary',
+    provider,
+    model,
+    request,
+    prompt: { system: HOUSE_RULES_SUMMARY_SYSTEM, user: houseRulesSummaryUserPrompt(text) },
+    response: data,
+  });
+  const payload = parseLlmResponse(provider, data);
+  const summary = String(payload?.summary || '').trim();
+  if (!summary) throw new Error('LLM house rules summary was empty');
+  return summary;
 }
 
 export async function generateSeed({
@@ -353,25 +478,17 @@ export async function generateSeed({
     body: JSON.stringify(request.body),
   });
   if (!res.ok) {
-    const error = new Error(`LLM seed request failed: HTTP ${res.status}`);
+    const detail = await res.text().catch(() => '');
+    const error = new Error(`LLM seed request failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
     error.status = res.status;
     throw error;
   }
   const data = await res.json();
-  await appendLlmCall(config.llmCallLogPath, {
-    at: new Date().toISOString(),
+  await recordLlmCall(config, {
+    kind: 'seed',
     provider,
     model,
-    url: request.url,
-    request: {
-      headers: {
-        ...request.headers,
-        'x-goog-api-key': request.headers['x-goog-api-key'] ? '[redacted]' : undefined,
-        Authorization: request.headers.Authorization ? '[redacted]' : undefined,
-        'x-api-key': request.headers['x-api-key'] ? '[redacted]' : undefined,
-      },
-      body: request.body,
-    },
+    request,
     prompt: { system: systemPrompt, user },
     response: data,
   });
@@ -423,26 +540,17 @@ export async function generateReview({
     body: JSON.stringify(request.body),
   });
   if (!res.ok) {
-    const error = new Error(`LLM review request failed: HTTP ${res.status}`);
+    const detail = await res.text().catch(() => '');
+    const error = new Error(`LLM review request failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
     error.status = res.status;
     throw error;
   }
   const data = await res.json();
-  await appendLlmCall(config.llmCallLogPath, {
-    at: new Date().toISOString(),
+  await recordLlmCall(config, {
     kind: 'review',
     provider,
     model,
-    url: request.url,
-    request: {
-      headers: {
-        ...request.headers,
-        'x-goog-api-key': request.headers['x-goog-api-key'] ? '[redacted]' : undefined,
-        Authorization: request.headers.Authorization ? '[redacted]' : undefined,
-        'x-api-key': request.headers['x-api-key'] ? '[redacted]' : undefined,
-      },
-      body: request.body,
-    },
+    request,
     prompt: { system: systemPrompt, user },
     response: data,
   });

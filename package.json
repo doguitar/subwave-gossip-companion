@@ -6,6 +6,8 @@
   "description": "Persona-aware fictional station gossip companion for Subwave",
   "scripts": {
     "start": "node src/cli.js serve",
+    "gossip:generate": "node src/cli.js generate",
+    "gossip:summarize-souls": "node src/cli.js summarize-souls",
     "gossip:seed": "node src/cli.js seed",
     "gossip:refresh": "node src/cli.js refresh",
     "gossip:ingest-spoken": "node src/cli.js ingest-spoken",

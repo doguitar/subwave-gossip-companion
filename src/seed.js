@@ -134,9 +134,32 @@ function pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCo
     roles = applyUncoveredHearerBias(chooseRoles(roster), roster, involved);
     roles = applyUncoveredTargetBias(roles, roster, targetCovered);
     if (!roles) return null;
-    if (!usedTargetSets.has(rumorTargetSetKey(roles.targets))) return roles;
+    if (!usedTargetSets.has(rumorTargetSetKey(roles.targets))) return rolesFromRoster(roles, roster);
   }
-  return roles;
+  return rolesFromRoster(roles, roster);
+}
+
+function rolesFromRoster(roles, roster) {
+  if (!roles) return roles;
+  const byId = new Map(roster.map((persona) => [persona.id, persona]));
+  const swap = (persona) => byId.get(persona?.id) || persona;
+  return {
+    ...roles,
+    teller: swap(roles.teller),
+    hearers: (roles.hearers || []).map(swap),
+    targets: (roles.targets || []).map(swap),
+  };
+}
+
+function rosterWithSummaries(roster, summarizeSouls) {
+  if (!summarizeSouls) return Promise.resolve(roster);
+  return summarizeSouls(roster).then((summaries) => {
+    const byId = new Map((summaries || []).map((item) => [item.id, String(item.summary || '').trim()]));
+    return roster.map((persona) => {
+      const rumorSummary = byId.get(persona.id);
+      return rumorSummary ? { ...persona, rumorSummary } : persona;
+    });
+  });
 }
 
 function refreshCompletenessShortfall(involved, targetCovered, roster) {
@@ -162,14 +185,18 @@ export async function seedGossip({
   minLength = 20,
   reviewRounds = 0,
   generateReview,
+  summarizeSouls,
+  summarizeHouseRules,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
   const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
   const chooseRegister = pickRegister || (() => pickRumorRegister({ catalog }));
-  const [roster, houseRules] = await Promise.all([
+  const [loadedRoster, loadedHouseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
   ]);
+  const roster = await rosterWithSummaries(loadedRoster, summarizeSouls);
+  const houseRules = summarizeHouseRules ? await summarizeHouseRules(loadedHouseRules) : loadedHouseRules;
   const tz = timezone || (await timezoneFromSchedule(adapter)) || 'UTC';
   const day = stationDay(now, tz);
 
@@ -185,7 +212,7 @@ export async function seedGossip({
   let seeded = 0;
   let rejected = 0;
   for (let i = 0; i < cap; i += 1) {
-    const roles = chooseRoles(roster);
+    const roles = rolesFromRoster(chooseRoles(roster), roster);
     if (!roles) {
       rejected += 1;
       continue;
@@ -270,14 +297,18 @@ export async function refreshGossip({
   minLength = 20,
   reviewRounds = 0,
   generateReview,
+  summarizeSouls,
+  summarizeHouseRules,
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
   const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
   const chooseRegister = pickRegister || (() => pickRumorRegister({ catalog }));
-  const [roster, houseRules] = await Promise.all([
+  const [loadedRoster, loadedHouseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
   ]);
+  const roster = await rosterWithSummaries(loadedRoster, summarizeSouls);
+  const houseRules = summarizeHouseRules ? await summarizeHouseRules(loadedHouseRules) : loadedHouseRules;
   if (!roster.length) {
     throw Object.assign(new Error('cannot refresh gossip without a persona roster'), { status: 503 });
   }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SEED_SYSTEM, seedUserPrompt, sessionBeatSummary } from '../src/llm.js';
+import { REVIEW_SYSTEM, SEED_SYSTEM, reviewUserPrompt, seedUserPrompt, sessionBeatSummary } from '../src/llm.js';
 import { pickRumorRegister, RUMOR_REGISTERS } from '../src/register.js';
 import { hearerIdsForRoles, pickGossipRoles, wrapRumor } from '../src/roles.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C } from './helpers.js';
@@ -67,7 +67,7 @@ test('seed prompt injects register id and guidance', () => {
   assert.match(prompt, /Rumor register for this rumor/);
   assert.match(prompt, /petty feud/);
   assert.match(prompt, /Write this rumor in that comic register only/);
-  assert.match(prompt, /Write a rumor whose subject, people, and comic beat are all new beside these:/);
+  assert.doesNotMatch(prompt, /beside these/);
 });
 
 test('petty-feud register suggests varied small-stakes stunts without anchoring on notes', () => {
@@ -79,25 +79,19 @@ test('petty-feud register suggests varied small-stakes stunts without anchoring 
   assert.ok(flavors.some((re) => re.test(register.guidance)));
 });
 
-test('SEED_SYSTEM requires a fresh physical-comic beat type per rumor in one batch', () => {
-  assert.match(SEED_SYSTEM, /Session variety|generation session/i);
-  assert.match(SEED_SYSTEM, /different physical\/comic beat type|different physical or comic beat type/i);
+test('SEED_SYSTEM does not prescribe a shared beat', () => {
+  assert.doesNotMatch(SEED_SYSTEM, /one shared beat|the same prop/i);
   assert.doesNotMatch(SEED_SYSTEM, /attached.?signage|labels?, signs, stickers|taped notes/i);
+  assert.doesNotMatch(SEED_SYSTEM, /earlier rumors/i);
 });
 
-test('sessionBeatSummary is empty when the session has no accepted rumors yet', () => {
-  assert.equal(sessionBeatSummary([]), '');
-});
-
-test('sessionBeatSummary lists plain-language beat setups from session tidbits', () => {
+test('sessionBeatSummary stays empty so prior rumors are not pasted back', () => {
   const wrapped = 'Alpha told Beta, "word is Gamma superglued the booth kettle shut"';
-  const block = sessionBeatSummary([wrapped]);
-  assert.match(block, /Session beat variety/i);
-  assert.match(block, /superglued the booth kettle/i);
-  assert.match(block, /different physical\/comic beat type/i);
+  assert.equal(sessionBeatSummary([]), '');
+  assert.equal(sessionBeatSummary([wrapped]), '');
 });
 
-test('seedUserPrompt adds session beat variety when session tidbits exist', () => {
+test('seedUserPrompt omits prior rumors even when the session already has tidbits', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
   const sessionTidbits = ['Alpha told Beta, "word is Gamma hid glitter in Beta\'s mic windscreen"'];
   const prompt = seedUserPrompt({
@@ -107,10 +101,9 @@ test('seedUserPrompt adds session beat variety when session tidbits exist', () =
     existing: sessionTidbits,
     sessionTidbits,
   });
-  assert.match(prompt, /Session beat variety/i);
-  assert.match(prompt, /glitter in Beta's mic windscreen/i);
-  assert.match(prompt, /different physical\/comic beat type/i);
-  assert.doesNotMatch(prompt, /attached.?signage|labels?, signs, stickers/i);
+  assert.doesNotMatch(prompt, /Session beat variety/i);
+  assert.doesNotMatch(prompt, /glitter in Beta's mic windscreen/i);
+  assert.doesNotMatch(prompt, /beside these/);
 });
 
 test('seedUserPrompt omits session beat block when session is still empty', () => {
@@ -123,6 +116,18 @@ test('SEED_SYSTEM defers register choice to the user message', () => {
   assert.doesNotMatch(SEED_SYSTEM, /Pick whichever/i);
   assert.doesNotMatch(SEED_SYSTEM, /fresh draw every rumor/i);
   assert.match(SEED_SYSTEM, /supplied in the user message/i);
+});
+
+test('seed prompt uses a rumor summary instead of the full soul', () => {
+  const roles = {
+    teller: { ...roster[0], rumorSummary: 'Notices clocks. Short sentences.' },
+    hearers: [],
+    targets: [{ ...roster[2], rumorSummary: 'Hides unused jingles in the rack.' }],
+  };
+  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
+  assert.match(prompt, /Summary: Notices clocks/);
+  assert.match(prompt, /Summary: Hides unused jingles/);
+  assert.doesNotMatch(prompt, /Soul:|Dry, short sentences|Collects unused jingles/);
 });
 
 test('seed prompt includes house rules and pre-picked rumor targets', () => {
@@ -147,18 +152,17 @@ test('seed prompt names a soulless persona without inventing a soul', () => {
   assert.match(prompt, /Collects unused jingles/);
 });
 
-test('seed prompt includes each hearer soul', () => {
+test('seed prompt omits hearers', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
   const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
-  assert.match(prompt, /Warm, over-explains the kettle/);
+  assert.doesNotMatch(prompt, /Hearers|Beta|Warm, over-explains the kettle/);
 });
 
-test('seed prompt requires one shared beat when two rumor-targets are listed', () => {
+test('seed prompt names both targets without repeating the shared-beat rule', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[1], roster[2]] };
   const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
-  assert.match(prompt, /one shared beat/i);
   assert.match(prompt, /Beta[\s\S]*Gamma/);
-  assert.match(prompt, /same moment|same scene/i);
+  assert.doesNotMatch(prompt, /one shared beat|Working together counts|Finish on that same prop/i);
 });
 
 test('seed prompt omits multi-target-only guidance for zero or one rumor-target', () => {
@@ -176,44 +180,40 @@ test('seed prompt omits multi-target-only guidance for zero or one rumor-target'
   assert.doesNotMatch(one, /one shared beat/i);
 });
 
-test('SEED_SYSTEM requires multi-target rumors to be one coherent beat', () => {
-  assert.match(SEED_SYSTEM, /exactly two rumor-targets/i);
-  assert.match(SEED_SYSTEM, /one (?:shared )?beat|same (?:moment|scene)/i);
+test('SEED_SYSTEM does not prescribe a two-target sentence shape', () => {
   assert.match(SEED_SYSTEM, /One sentence/);
-  assert.match(SEED_SYSTEM, /picture of what the subject did/);
+  assert.doesNotMatch(SEED_SYSTEM, /one action they share|working the prop together/);
+});
+
+test('REVIEW_SYSTEM edits for coherence and drops non-sequiturs', () => {
+  assert.match(REVIEW_SYSTEM, /One sentence, 20 to 240 characters/);
+  assert.match(REVIEW_SYSTEM, /coherent/);
+  assert.match(REVIEW_SYSTEM, /non-sequiturs/i);
+  assert.match(REVIEW_SYSTEM, /same people, the same prop, and the same event/);
+  assert.match(reviewUserPrompt({ day: '2026-09-19', tidbits: [] }), /Remove non-sequiturs/);
+  assert.doesNotMatch(REVIEW_SYSTEM, /sharper laugh|punch-up|cross-rumor continuity|clearer and funnier/i);
 });
 
 test('SEED_SYSTEM allows credible provenance while rumor-targets stay the subject', () => {
   assert.match(SEED_SYSTEM, /provenance|how the teller learned|overheard|walked in/i);
   assert.match(SEED_SYSTEM, /rumor-targets|the subject/i);
   assert.doesNotMatch(SEED_SYSTEM, /only about the subject\.?\s*$/m);
-  assert.match(SEED_SYSTEM, /consequence|moral/i);
   assert.match(SEED_SYSTEM, /20 to 240/);
 });
 
-test('SEED_SYSTEM allows in-beat target reactions and forbids second narrative beats', () => {
-  assert.match(SEED_SYSTEM, /immediate (?:physical|verbal )?reaction|same (?:wrong )?moment|cause-and-effect/i);
-  assert.match(SEED_SYSTEM, /second (?:narrative )?beat|and now|get this/i);
-  assert.doesNotMatch(SEED_SYSTEM, /Stop on that picture\.\s*The next word is not/i);
+test('SEED_SYSTEM does not require a reaction menu', () => {
+  assert.doesNotMatch(SEED_SYSTEM, /flinch, shriek, blurt|hands meet|same second/);
 });
 
-test('seedUserPrompt may nudge instant target reaction when rumor-targets are listed', () => {
-  const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
-  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
-  assert.match(prompt, /instant|immediate/i);
-  assert.match(prompt, /reaction|one shared beat|same beat/i);
-});
-
-test('seedUserPrompt nudges private beats toward teller-plausible sourcing when targets are listed', () => {
-  const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
-  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
-  assert.match(prompt, /plausibly repeat|credible sourcing|how this teller/i);
-});
-
-test('seedUserPrompt omits private-scene plausibility nudge when there are no rumor-targets', () => {
-  const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
-  const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
-  assert.doesNotMatch(prompt, /plausibly repeat|credible sourcing|how this teller/i);
+test('seedUserPrompt does not repeat the beat or sourcing rules', () => {
+  for (const targets of [[], [roster[2]], [roster[1], roster[2]]]) {
+    const prompt = seedUserPrompt({
+      day: '2026-09-19',
+      roles: { teller: roster[0], hearers: [roster[1]], targets },
+      register: RUMOR_REGISTERS[0],
+    });
+    assert.doesNotMatch(prompt, /plausibly repeat|credible sourcing|Working together counts|Finish on that same prop|one shared beat/i);
+  }
 });
 
 test('telephone prompt carries the immediately previous telling', () => {
@@ -229,5 +229,5 @@ test('telephone prompt carries the immediately previous telling', () => {
   assert.match(prompt, /word is the kettle moved/);
   assert.match(prompt, /one telephone-game step/);
   assert.match(prompt, /Dry, short sentences/);
-  assert.match(prompt, /Warm, over-explains the kettle/);
+  assert.doesNotMatch(prompt, /Warm, over-explains the kettle/);
 });
