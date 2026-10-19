@@ -9,7 +9,7 @@ import {
   pruneGossipCommentsToTidbits,
   tidbitKey,
 } from './store.js';
-import { validateRumor } from './validate.js';
+import { rumorQuoteFromWrapped, validateRumor } from './validate.js';
 
 export function stationDay(now = new Date(), timeZone = 'UTC') {
   try {
@@ -34,7 +34,22 @@ function tidbitFromRoles(roles, rumor, createdAt) {
   };
 }
 
-async function generateOne({ generate, roster, houseRules = '', roles, register, day, existing, previousTidbit = '', createdAt, log, sleep = defaultSleep, minLength = 20 }) {
+async function generateOne({
+  generate,
+  roster,
+  houseRules = '',
+  roles,
+  register,
+  day,
+  existing,
+  sessionTexts = [],
+  sessionRumors = [],
+  previousTidbit = '',
+  createdAt,
+  log,
+  sleep = defaultSleep,
+  minLength = 20,
+}) {
   const maxAttempts = 3;
   let lastReason = 'empty-text';
   let attempt = 0;
@@ -48,11 +63,17 @@ async function generateOne({ generate, roster, houseRules = '', roles, register,
         roles,
         register,
         existing,
+        sessionTexts,
         previousTidbit,
         attempt,
       });
       const rumor = rumorFromPayload(payload);
-      const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: 240 });
+      const check = validateRumor(rumor, {
+        targets: roles.targets,
+        minLength,
+        maxLength: 240,
+        sessionRumors,
+      });
       if (check.ok) return { ok: true, tidbit: tidbitFromRoles(roles, rumor, createdAt) };
       lastReason = check.reason;
       log.warn?.(`[gossip] rumor rejected attempt=${attempt}/${maxAttempts}: ${check.reason}`);
@@ -162,6 +183,7 @@ export async function seedGossip({
       continue;
     }
     const register = chooseRegister();
+    const sessionRumors = sessionTexts.map(rumorQuoteFromWrapped);
     const result = await generateOne({
       generate,
       roster,
@@ -170,6 +192,8 @@ export async function seedGossip({
       register,
       day,
       existing: [...retainedHistory, ...sessionTexts],
+      sessionTexts,
+      sessionRumors,
       createdAt,
       log,
       sleep,
@@ -247,6 +271,8 @@ export async function refreshGossip({
       break;
     }
     const register = chooseRegister();
+    const sessionTexts = tidbits.map((t) => t.text);
+    const sessionRumors = sessionTexts.map(rumorQuoteFromWrapped);
     const result = await generateOne({
       generate,
       roster,
@@ -254,7 +280,9 @@ export async function refreshGossip({
       roles,
       register,
       day,
-      existing: [...retainedHistory, ...tidbits.map((t) => t.text)],
+      existing: [...retainedHistory, ...sessionTexts],
+      sessionTexts,
+      sessionRumors,
       createdAt,
       log,
       sleep,

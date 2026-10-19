@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { rumorTargetSetKey } from '../src/roles.js';
+import { classifyStuntMotif, STUNT_MOTIF_ATTACHED_SIGNAGE } from '../src/validate.js';
 import { refreshGossip, seedGossip } from '../src/seed.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
 
@@ -16,6 +17,38 @@ const onAir = {
   hearers: [],
   targets: [],
 };
+
+test('seed accepts at most one attached-signage rumor per session when mocks repeat motifs', async () => {
+  const { store, read } = await tempStore();
+  const adapter = stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] });
+  const signage =
+    'word is Gamma laminated a fake compliance sticker on the legal ID cart';
+  const neutralA = 'word is Gamma hid the booth kettle behind the legal ID cart again tonight';
+  const neutralB = 'word is Gamma coughed a dead cart over the legal ID during the weather break';
+  let calls = 0;
+  const warns = [];
+  const result = await seedGossip({
+    store,
+    adapter,
+    pickRoles: () => hallway,
+    cap: 3,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async () => {
+      calls += 1;
+      if (calls === 1 || calls === 2) return { rumor: signage };
+      if (calls === 3) return { rumor: neutralA };
+      return { rumor: neutralB };
+    },
+    log: { info() {}, warn: (msg) => warns.push(msg) },
+  });
+  assert.equal(result.seeded, 3);
+  const state = await read();
+  const quotes = state.tidbits.map((t) => t.text.match(/"([^"]*)"/)?.[1] ?? '');
+  const signageCount = quotes.filter((q) => classifyStuntMotif(q) === STUNT_MOTIF_ATTACHED_SIGNAGE).length;
+  assert.equal(signageCount, 1);
+  assert.ok(warns.some((w) => /duplicate-stunt-motif/.test(w)));
+});
 
 test('seed uses pre-picked roles and skips duplicate rumor wraps', async () => {
   const { store, read } = await tempStore();

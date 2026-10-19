@@ -15,7 +15,7 @@ export const RUMOR_REGISTERS = [
     id: 'petty-feud',
     name: 'petty feud',
     guidance:
-      'Small-stakes grudge energy: who stole whose mug, who hogged the good mic, who left passive-aggressive notes. The sting is personal and ridiculous.',
+      'Small-stakes grudge energy: swapped booth props, hogged mics, locker sabotage, stolen mugs—varied petty stunts, not the same beat twice. The sting is personal and ridiculous.',
   },
   {
     id: 'bawdy',

@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { appendLlmCall } from './callLog.js';
 import { personaSoul } from './roles.js';
+import {
+  classifyStuntMotif,
+  rumorQuoteFromWrapped,
+  STUNT_MOTIF_ATTACHED_SIGNAGE,
+} from './validate.js';
 
 export const SEED_SYSTEM = readFileSync(new URL('../prompt.md', import.meta.url), 'utf8').trim();
 
@@ -19,7 +24,29 @@ function withSoul(persona) {
   return soul ? `${named}\nSoul: ${soul}` : named;
 }
 
-export function seedUserPrompt({ houseRules = '', day, roles, register, existing = [], previousTidbit = '' }) {
+function stuntFamiliesSessionBlock(sessionTexts = []) {
+  const used = new Set();
+  for (const line of sessionTexts) {
+    const motif = classifyStuntMotif(rumorQuoteFromWrapped(line));
+    if (motif !== STUNT_MOTIF_ATTACHED_SIGNAGE) continue;
+    used.add(motif);
+  }
+  if (!used.has(STUNT_MOTIF_ATTACHED_SIGNAGE)) return '';
+  return `## Stunt families already used this session
+Attached signage (labels, signs, stickers, kapu tags, taped notes on objects) is already represented. Do not reuse that physical stunt family; pick a different wrong detail.
+
+`;
+}
+
+export function seedUserPrompt({
+  houseRules = '',
+  day,
+  roles,
+  register,
+  existing = [],
+  sessionTexts = [],
+  previousTidbit = '',
+}) {
   const hearers = roles.hearers.length
     ? roles.hearers.map(withSoul).join('\n')
     : '(none — this rumor is said on air by the teller; everyone at the station hears it)';
@@ -49,12 +76,13 @@ Write this rumor in that comic register only.
     roles.targets.length
       ? ' A rumor-target\'s instant reaction may complete the stunt when it is the same wrong moment—not a second rumor or moral.'
       : '';
+  const stuntBlock = stuntFamiliesSessionBlock(sessionTexts);
   return `Station day: ${day}
 
 Teller (already chosen): ${withSoul(roles.teller)}
 Hearers (already chosen): ${hearers}
 Rumor-targets (already chosen): ${targets}
-${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}${reactionHint}
+${evolution}${stuntBlock}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.${plausibility}${reactionHint}
 
 ## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}
@@ -225,6 +253,7 @@ export async function generateSeed({
   roles,
   register,
   existing = [],
+  sessionTexts = [],
   previousTidbit = '',
   fetchImpl = fetch,
   log,
@@ -240,7 +269,7 @@ export async function generateSeed({
     throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required to generate gossip'), { code: 'CONFIG' });
   }
 
-  const user = seedUserPrompt({ houseRules, day, roles, register, existing, previousTidbit });
+  const user = seedUserPrompt({ houseRules, day, roles, register, existing, sessionTexts, previousTidbit });
   log?.info?.(`[gossip] LLM prompt system:\n${systemPrompt}\n[gossip] LLM prompt user:\n${user}`);
   const request = buildLlmRequest({
     provider,

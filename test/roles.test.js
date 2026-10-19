@@ -65,7 +65,8 @@ test('seed prompt injects register id and guidance', () => {
   const prompt = seedUserPrompt({ day: '2026-09-19', roles, register });
   assert.match(prompt, /Rumor register for this rumor/);
   assert.match(prompt, /petty feud/);
-  assert.match(prompt, /passive-aggressive notes/);
+  assert.doesNotMatch(prompt, /passive-aggressive notes/);
+  assert.match(prompt, /grudge|mug|mic|prop|locker/i);
   assert.match(prompt, /Write this rumor in that comic register only/);
   assert.match(prompt, /Write a rumor whose subject, people, and comic beat are all new beside these:/);
 });
@@ -165,6 +166,27 @@ test('seedUserPrompt omits private-scene plausibility nudge when there are no ru
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
   const prompt = seedUserPrompt({ day: '2026-09-19', roles, register: RUMOR_REGISTERS[0] });
   assert.doesNotMatch(prompt, /plausibly repeat|credible sourcing|how this teller/i);
+});
+
+test('seedUserPrompt warns when attached-signage stunt family is already in the session', () => {
+  const roles = { teller: roster[0], hearers: [roster[1]], targets: [roster[2]] };
+  const prior =
+    'Alpha told Beta, "Heard Reed Silver laminated a fake inspection sticker in the galley."';
+  const prompt = seedUserPrompt({
+    day: '2026-09-19',
+    roles,
+    register: RUMOR_REGISTERS[0],
+    existing: [prior],
+    sessionTexts: [prior],
+  });
+  assert.match(prompt, /attached.?signage|labels?, signs?, stickers?|taped notes/i);
+  assert.match(prompt, /do not reuse|must not reuse|already used/i);
+});
+
+test('SEED_SYSTEM requires varied physical stunt families within one session', () => {
+  assert.match(SEED_SYSTEM, /stunt famil/i);
+  assert.match(SEED_SYSTEM, /attached signage|labels?, signs?, stickers?/i);
+  assert.match(SEED_SYSTEM, /at most one/i);
 });
 
 test('telephone prompt carries the immediately previous telling', () => {
