@@ -41,6 +41,33 @@ test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL
   assert.equal(config.statePath, path.join(config.baseDir, 'data', 'gossip-state.json'));
 });
 
+test('loadConfig omits llmThinkingLevel when thinking env is unset or whitespace-only', () => {
+  const base = {
+    GOSSIP_BASE_DIR: '/workspace',
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+  };
+  assert.equal('llmThinkingLevel' in loadConfig(base).config, false);
+  assert.equal('llmThinkingLevel' in loadConfig({ ...base, PROVIDER_THINKING: '   ' }).config, false);
+  assert.equal('llmThinkingLevel' in loadConfig({ ...base, GOSSIP_LLM_THINKING: '\t' }).config, false);
+});
+
+test('loadConfig maps PROVIDER_THINKING and GOSSIP_LLM_THINKING alias with primary precedence', () => {
+  const base = {
+    GOSSIP_BASE_DIR: '/workspace',
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+  };
+  assert.equal(loadConfig({ ...base, PROVIDER_THINKING: 'medium' }).config.llmThinkingLevel, 'medium');
+  assert.equal(loadConfig({ ...base, GOSSIP_LLM_THINKING: 'high' }).config.llmThinkingLevel, 'high');
+  assert.equal(
+    loadConfig({ ...base, PROVIDER_THINKING: 'low', GOSSIP_LLM_THINKING: 'max' }).config.llmThinkingLevel,
+    'low',
+  );
+});
+
 test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
   const { config, errors } = loadConfig({
     GOSSIP_BASE_DIR: '/workspace',
@@ -140,6 +167,61 @@ test('buildLlmRequest covers openai, google, and anthropic', () => {
   assert.equal(anthropic.body.system, 'sys');
 });
 
+test('buildLlmRequest omits thinking fields when level is off', () => {
+  const common = { apiKey: 'k', model: 'm', system: 'sys', user: 'usr' };
+  const openai = buildLlmRequest({
+    ...common,
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+  });
+  assert.equal(openai.body.reasoning_effort, undefined);
+  assert.equal(openai.body.thinking, undefined);
+
+  const local = buildLlmRequest({
+    ...common,
+    provider: 'openai',
+    openaiBaseUrl: 'http://10.10.1.50:1234/v1',
+  });
+  assert.equal(local.body.reasoning_effort, undefined);
+  assert.equal(local.body.thinking, undefined);
+
+  const google = buildLlmRequest({ ...common, provider: 'google' });
+  assert.equal(google.body.generationConfig.thinkingConfig, undefined);
+
+  const anthropic = buildLlmRequest({ ...common, provider: 'anthropic' });
+  assert.equal(anthropic.body.output_config, undefined);
+});
+
+test('buildLlmRequest maps thinking level per provider when on', () => {
+  const level = 'medium';
+  const common = { apiKey: 'k', model: 'm', system: 'sys', user: 'usr', thinkingLevel: level };
+
+  const anthropic = buildLlmRequest({ ...common, provider: 'anthropic' });
+  assert.deepEqual(anthropic.body.output_config, { effort: level });
+  assert.equal(anthropic.body.temperature, 0.9);
+
+  const openai = buildLlmRequest({
+    ...common,
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+  });
+  assert.equal(openai.body.reasoning_effort, level);
+  assert.equal(openai.body.thinking, undefined);
+  assert.equal(openai.body.response_format.type, 'json_object');
+
+  const local = buildLlmRequest({
+    ...common,
+    provider: 'openai',
+    openaiBaseUrl: 'http://proxy.local/v1',
+  });
+  assert.equal(local.body.reasoning_effort, level);
+  assert.deepEqual(local.body.thinking, { type: 'enabled', level });
+
+  const google = buildLlmRequest({ ...common, provider: 'google', model: 'gemini-2.0-flash' });
+  assert.deepEqual(google.body.generationConfig.thinkingConfig, { thinkingLevel: level });
+  assert.equal(google.body.generationConfig.responseMimeType, 'application/json');
+});
+
 test('generateSeed posts OpenAI-compatible chat completions and parses rumor', async () => {
   const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
   const register = RUMOR_REGISTERS.find((r) => r.id === 'deadpan-absurdity');
@@ -170,6 +252,53 @@ test('generateSeed posts OpenAI-compatible chat completions and parses rumor', a
     },
   });
   assert.equal(result.rumor, 'word is the booth kettle whistled through the legal ID');
+});
+
+test('generateSeed forwards configured thinking level into the posted JSON body', async () => {
+  const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
+  const register = RUMOR_REGISTERS.find((r) => r.id === 'deadpan-absurdity');
+  const baseConfig = {
+    llmProvider: 'openai',
+    llmApiKey: 'sk-test',
+    llmModel: 'gpt-4o-mini',
+    openaiBaseUrl: 'https://openai.example/v1',
+  };
+
+  await generateSeed({
+    config: baseConfig,
+    day: '2026-09-19',
+    roles,
+    register,
+    fetchImpl: async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      assert.equal(body.reasoning_effort, undefined);
+      assert.equal(body.thinking, undefined);
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"rumor":"no steering"}' } }],
+        }),
+      };
+    },
+  });
+
+  await generateSeed({
+    config: { ...baseConfig, llmThinkingLevel: 'high' },
+    day: '2026-09-19',
+    roles,
+    register,
+    fetchImpl: async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      assert.equal(body.reasoning_effort, 'high');
+      assert.deepEqual(body.thinking, { type: 'enabled', level: 'high' });
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"rumor":"with steering"}' } }],
+        }),
+      };
+    },
+  });
 });
 
 test('generateSeed does not write multi-line prompt bodies to the operational log', async () => {
@@ -220,6 +349,31 @@ test('generateSeed does not write multi-line prompt bodies to the operational lo
   assert.equal(record.prompt.system, systemPrompt);
   assert.match(record.prompt.user, /anti-repeat/);
   assert.match(record.prompt.user, /House rules/);
+});
+
+test('parseLlmResponse ignores Google thought parts and Anthropic non-text blocks', () => {
+  assert.equal(
+    parseLlmResponse('google', {
+      candidates: [{
+        content: {
+          parts: [
+            { thought: true, text: '{"rumor":"ignored thought"}' },
+            { text: '{"rumor":"someone swears the neon blinked twice"}' },
+          ],
+        },
+      }],
+    }).rumor,
+    'someone swears the neon blinked twice',
+  );
+  assert.equal(
+    parseLlmResponse('anthropic', {
+      content: [
+        { type: 'thinking', thinking: 'internal reasoning' },
+        { type: 'text', text: '{"rumor":"unconfirmed the request line coughed static"}' },
+      ],
+    }).rumor,
+    'unconfirmed the request line coughed static',
+  );
 });
 
 test('parseLlmResponse reads Google and Anthropic payloads', () => {

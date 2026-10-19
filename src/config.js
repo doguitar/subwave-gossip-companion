@@ -81,6 +81,11 @@ export function loadConfig(env = process.env) {
     || DEFAULT_MODELS[llmProvider]
     || DEFAULT_MODELS.openai
   ).trim();
+  const llmThinkingLevel = (
+    env.PROVIDER_THINKING
+    || env.GOSSIP_LLM_THINKING
+    || ''
+  ).trim();
   const openaiBaseUrl = (
     env.OPENAI_BASE_URL
     || env.GOSSIP_LLM_URL
@@ -123,6 +128,7 @@ export function loadConfig(env = process.env) {
     llmProvider,
     llmApiKey,
     llmModel,
+    ...(llmThinkingLevel ? { llmThinkingLevel } : {}),
     openaiBaseUrl,
     llmUrl,
     llmFixturePath,
