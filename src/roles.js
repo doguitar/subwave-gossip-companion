@@ -18,7 +18,10 @@ export function joinNames(names) {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
-export function pickGossipRoles(personas, { rng = Math.random, hearerMax = 3, targetMax = 2 } = {}) {
+export function pickGossipRoles(
+  personas,
+  { rng = Math.random, hearerMax = 3, targetMax = 2, targetCount: fixedTargetCount } = {},
+) {
   const roster = (personas || []).filter((p) => p && p.id);
   if (!roster.length) return null;
   const shuffled = shuffle(roster, rng);
@@ -27,7 +30,10 @@ export function pickGossipRoles(personas, { rng = Math.random, hearerMax = 3, ta
   const hearerCount = randInt(rng, 0, Math.min(hearerMax, unused.length));
   const hearers = unused.slice(0, hearerCount);
   const leftover = unused.slice(hearerCount);
-  const targetCount = randInt(rng, 0, Math.min(targetMax, leftover.length));
+  const maxTargets = Math.min(targetMax, leftover.length);
+  const targetCount = fixedTargetCount != null
+    ? Math.min(Math.max(0, fixedTargetCount), maxTargets)
+    : randInt(rng, 0, maxTargets);
   const targets = leftover.slice(0, targetCount);
   return { teller, hearers, targets };
 }

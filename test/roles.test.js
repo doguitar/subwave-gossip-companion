@@ -29,6 +29,13 @@ test('pickGossipRoles keeps one teller, 0-3 hearers, 0-2 disjoint targets', () =
   assert.equal(used.size, 1 + roles.hearers.length + roles.targets.length);
 });
 
+test('pickGossipRoles honors a fixed targetCount when provided', () => {
+  const roles = pickGossipRoles(roster, { rng: seq([0, 0, 0, 0]), targetCount: 2 });
+  assert.equal(roles.targets.length, 2);
+  const zeroTargets = pickGossipRoles(roster, { rng: seq([0, 0, 0, 0]), targetCount: 0 });
+  assert.equal(zeroTargets.targets.length, 0);
+});
+
 test('zero hearers wrap as said on air and store null hearers', () => {
   const roles = {
     teller: PERSONA_A,

@@ -98,6 +98,17 @@ function defaultSleep(ms) {
 }
 
 const TARGET_SET_PICK_ATTEMPTS = 3;
+const ROLE_REGISTER_PICK_ATTEMPTS = 24;
+
+function pickRolesAndRegister(chooseRoles, roster, chooseRegister) {
+  for (let attempt = 0; attempt < ROLE_REGISTER_PICK_ATTEMPTS; attempt += 1) {
+    const roles = rolesFromRoster(chooseRoles(roster), roster);
+    if (!roles) return null;
+    const register = chooseRegister(roles);
+    if (register) return { roles, register };
+  }
+  return null;
+}
 
 function applyUncoveredHearerBias(roles, roster, involved) {
   const uncovered = roster.filter((persona) => !involved.has(persona.id));
@@ -190,7 +201,9 @@ export async function seedGossip({
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
   const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
-  const chooseRegister = pickRegister || (() => pickRumorRegister({ catalog }));
+  const chooseRegister = pickRegister
+    ? () => pickRegister()
+    : (roles) => pickRumorRegister({ catalog, targetCount: roles.targets.length });
   const [loadedRoster, loadedHouseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
@@ -212,12 +225,12 @@ export async function seedGossip({
   let seeded = 0;
   let rejected = 0;
   for (let i = 0; i < cap; i += 1) {
-    const roles = rolesFromRoster(chooseRoles(roster), roster);
-    if (!roles) {
+    const picked = pickRolesAndRegister(chooseRoles, roster, chooseRegister);
+    if (!picked) {
       rejected += 1;
       continue;
     }
-    const register = chooseRegister();
+    const { roles, register } = picked;
     const result = await generateOne({
       generate,
       roster,
@@ -302,7 +315,9 @@ export async function refreshGossip({
 }) {
   const chooseRoles = pickRoles || pickGossipRoles;
   const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
-  const chooseRegister = pickRegister || (() => pickRumorRegister({ catalog }));
+  const chooseRegister = pickRegister
+    ? () => pickRegister()
+    : (roles) => pickRumorRegister({ catalog, targetCount: roles.targets.length });
   const [loadedRoster, loadedHouseRules] = await Promise.all([
     adapter.getRosterPersonas(),
     adapter.getHouseRules ? adapter.getHouseRules() : '',
@@ -331,12 +346,22 @@ export async function refreshGossip({
     state.tidbits = [];
   });
   for (let i = 0; i < maxLinks && (!requireComplete || refreshCompletenessShortfall(involved, targetCovered, roster)); i += 1) {
-    const roles = pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets);
+    let roles = null;
+    let register = null;
+    for (let pickAttempt = 0; pickAttempt < ROLE_REGISTER_PICK_ATTEMPTS; pickAttempt += 1) {
+      roles = pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets);
+      if (!roles) break;
+      register = chooseRegister(roles);
+      if (register) break;
+    }
     if (!roles) {
       rejected.push({ reason: 'no-roles' });
       break;
     }
-    const register = chooseRegister();
+    if (!register) {
+      rejected.push({ reason: 'no-register' });
+      continue;
+    }
     const result = await generateOne({
       generate,
       roster,

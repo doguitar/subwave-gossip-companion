@@ -19,7 +19,23 @@ export function defaultGossipTypesFileEntries() {
   }));
 }
 
-export function normalizeGossipTypeEntry(raw, index) {
+export const DEFAULT_GOSSIP_TARGET_MAX = 2;
+
+export function validateGossipTypeTargetCount(raw, slug, { targetMax = DEFAULT_GOSSIP_TARGET_MAX } = {}) {
+  if (raw.targetCount == null && raw.rumorTargetCount == null) return {};
+  const value = raw.targetCount ?? raw.rumorTargetCount;
+  if (typeof value === 'boolean' || !Number.isInteger(value) || value < 0) {
+    return { error: `gossip type "${slug}" targetCount must be a non-negative integer` };
+  }
+  if (value > targetMax) {
+    return {
+      error: `gossip type "${slug}" targetCount ${value} exceeds the maximum rumor-target count (${targetMax})`,
+    };
+  }
+  return { targetCount: value };
+}
+
+export function normalizeGossipTypeEntry(raw, index, { targetMax = DEFAULT_GOSSIP_TARGET_MAX } = {}) {
   const label = `gossip type entry ${index + 1}`;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { error: `${label} must be an object` };
@@ -28,11 +44,13 @@ export function normalizeGossipTypeEntry(raw, index) {
   const guidance = String(raw.guidance ?? raw.prompt ?? raw.text ?? '').trim();
   if (!slug) return { error: `${label} is missing slug` };
   if (!guidance) return { error: `${label} "${slug}" is missing guidance` };
+  const targetResult = validateGossipTypeTargetCount(raw, slug, { targetMax });
+  if (targetResult.error) return { error: targetResult.error };
   const nameRaw = raw.name != null ? String(raw.name).trim() : '';
   const name = nameRaw || humanizeSlug(slug);
-  return {
-    register: { id: slug, name, guidance },
-  };
+  const register = { id: slug, name, guidance };
+  if (targetResult.targetCount != null) register.targetCount = targetResult.targetCount;
+  return { register };
 }
 
 export function validateGossipTypesCatalog(registers) {
@@ -53,7 +71,7 @@ export function validateGossipTypesCatalog(registers) {
   return errors;
 }
 
-export function parseGossipTypesJson(raw) {
+export function parseGossipTypesJson(raw, { targetMax = DEFAULT_GOSSIP_TARGET_MAX } = {}) {
   let parsed;
   try {
     parsed = JSON.parse(raw);
@@ -67,7 +85,7 @@ export function parseGossipTypesJson(raw) {
   const errors = [];
   const registers = [];
   entries.forEach((entry, index) => {
-    const normalized = normalizeGossipTypeEntry(entry, index);
+    const normalized = normalizeGossipTypeEntry(entry, index, { targetMax });
     if (normalized.error) {
       errors.push(normalized.error);
       return;

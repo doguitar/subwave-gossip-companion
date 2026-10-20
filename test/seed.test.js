@@ -162,6 +162,64 @@ test('refresh retries rejected model output before failing', async () => {
   assert.deepEqual(registers, [fixedRegister, fixedRegister]);
 });
 
+test('seed never pairs constrained registers with mismatched rumor-target counts', async () => {
+  const { store } = await tempStore();
+  const rumorRegisters = [
+    { id: 'station-life', name: 'station life', guidance: 'g0', targetCount: 0 },
+    { id: 'feud', name: 'feud', guidance: 'g2', targetCount: 2 },
+    { id: 'open', name: 'open', guidance: 'gany' },
+  ];
+  const pairs = [];
+  let n = 0;
+  const result = await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    rumorRegisters,
+    pickRoles: () => hallway,
+    cap: 3,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async ({ register, roles }) => {
+      n += 1;
+      pairs.push({ registerId: register.id, targetLen: roles.targets.length });
+      const targetName = roles.targets[0]?.name || 'the cart';
+      return { rumor: `unconfirmed ${targetName} and register ${register.id} rumor ${n} tonight` };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.seeded, 3);
+  assert.equal(pairs.length, 3);
+  for (const { registerId, targetLen } of pairs) {
+    const reg = rumorRegisters.find((r) => r.id === registerId);
+    if (reg.targetCount != null) assert.equal(targetLen, reg.targetCount);
+  }
+});
+
+test('seed respects targetCount when roles are not injected', async () => {
+  const { store } = await tempStore();
+  const rumorRegisters = [
+    { id: 'zero-only', name: 'z', guidance: 'g', targetCount: 0 },
+  ];
+  let attempts = 0;
+  const result = await seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    rumorRegisters,
+    cap: 1,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async ({ roles, register }) => {
+      attempts += 1;
+      assert.equal(register.id, 'zero-only');
+      assert.equal(roles.targets.length, 0);
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID twice' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.seeded, 1);
+  assert.ok(attempts >= 1);
+});
+
 test('seed passes a register on every generate call for each new rumor', async () => {
   const { store } = await tempStore();
   const seenRegisters = [];
@@ -254,6 +312,28 @@ test('default refresh fails when rumor targets never cover the roster', async ()
     }),
     (err) => err.status === 502 && err.targetCovered === 0 && err.roster === 1 && err.targetIncomplete === true,
   );
+});
+
+test('refresh respects targetCount on rumor registers', async () => {
+  const { store } = await tempStore();
+  const rumorRegisters = [
+    { id: 'zero-only', name: 'z', guidance: 'g', targetCount: 0 },
+  ];
+  await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    rumorRegisters,
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async ({ roles, register }) => {
+      assert.equal(register.id, 'zero-only');
+      assert.equal(roles.targets.length, 0);
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID twice' };
+    },
+    log: { info() {}, warn() {} },
+  });
 });
 
 test('injected pickRoles refresh does not require rumor-target coverage', async () => {
