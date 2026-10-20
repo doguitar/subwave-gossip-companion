@@ -110,6 +110,57 @@ test('pickRumorRegister chooses uniformly from custom catalog', () => {
   assert.equal(third.id, 'c');
 });
 
+test('parseGossipTypesJson carries optional targetCount on registers', () => {
+  const payload = JSON.stringify([
+    { slug: 'station-life', guidance: 'no targets', targetCount: 0 },
+    { slug: 'feud', guidance: 'two targets', targetCount: 2 },
+    { slug: 'any', guidance: 'any count' },
+  ]);
+  const { registers, errors } = parseGossipTypesJson(payload);
+  assert.deepEqual(errors, undefined);
+  assert.equal(registers[0].targetCount, 0);
+  assert.equal(registers[1].targetCount, 2);
+  assert.equal(registers[2].targetCount, undefined);
+});
+
+test('parseGossipTypesJson rejects invalid targetCount values', () => {
+  const badType = JSON.stringify([{ slug: 'x', guidance: 'g', targetCount: 'two' }]);
+  assert.match(parseGossipTypesJson(badType).errors.join('; '), /non-negative integer/);
+  const negative = JSON.stringify([{ slug: 'x', guidance: 'g', targetCount: -1 }]);
+  assert.match(parseGossipTypesJson(negative).errors.join('; '), /non-negative integer/);
+  const tooHigh = JSON.stringify([{ slug: 'x', guidance: 'g', targetCount: 3 }]);
+  assert.match(parseGossipTypesJson(tooHigh).errors.join('; '), /exceeds the maximum/);
+});
+
+test('requireConfig fails when gossip types targetCount is out of range', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-tc-'));
+  const typesPath = path.join(dir, 'gossip-types.json');
+  await writeFile(
+    typesPath,
+    `${JSON.stringify([{ slug: 'only-two', guidance: 'needs two targets', targetCount: 9 }])}\n`,
+    'utf8',
+  );
+  assert.throws(
+    () => requireConfig({ ...apiEnv, GOSSIP_BASE_DIR: dir, GOSSIP_TYPES_PATH: typesPath }),
+    (err) => err.code === 'CONFIG' && /exceeds the maximum/.test(err.message),
+  );
+});
+
+test('pickRumorRegister filters by targetCount and returns null when none match', () => {
+  const constrained = [
+    { id: 'zero-only', name: 'z', guidance: 'g', targetCount: 0 },
+    { id: 'pair', name: 'p', guidance: 'g', targetCount: 2 },
+  ];
+  assert.equal(pickRumorRegister({ catalog: constrained, targetCount: 1 }), null);
+  assert.equal(pickRumorRegister({ catalog: constrained, targetCount: 0, rng: seq([0]) }).id, 'zero-only');
+  const catalog = [
+    ...constrained,
+    { id: 'open', name: 'o', guidance: 'g' },
+  ];
+  const twoEligible = pickRumorRegister({ catalog, targetCount: 2, rng: seq([0.99]) });
+  assert.ok(['open', 'pair'].includes(twoEligible.id));
+});
+
 test('seedUserPrompt reflects edited guidance from loaded register', () => {
   const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
   const register = { id: 'custom', name: 'custom', guidance: 'Operator-only guidance text.' };
