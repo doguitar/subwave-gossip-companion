@@ -17,10 +17,11 @@ function baseDirFromArgs(argv) {
   return index >= 0 ? argv[index + 1] : '';
 }
 
-function applyCliOptions(argv, env) {
+export function applyCliOptions(argv, env) {
   const baseDir = baseDirFromArgs(argv);
   if (baseDir) env.GOSSIP_BASE_DIR = baseDir;
-  applyDotEnv(baseDir ? `${baseDir}/.env` : undefined, env);
+  const envDir = baseDir || env.GOSSIP_BASE_DIR || '.';
+  applyDotEnv(path.resolve(envDir, '.env'), env);
 }
 
 function flagValue(argv, name) {
@@ -108,7 +109,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       : null;
     maintenance?.unref?.();
     const shutdown = (signal) => {
-      if (maintenance) clearInterval(maintenance);
+      clearInterval(maintenance);
       log.info(`[gossip] received ${signal}; shutting down`);
       server.close(() => process.exit(0));
     };
