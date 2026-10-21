@@ -342,9 +342,6 @@ export async function refreshGossip({
   const retainedHistory = historyGenerations > 0
     ? generatedGossipHistory(store.snapshot()).flat()
     : [];
-  await store.mutate((state) => {
-    state.tidbits = [];
-  });
   for (let i = 0; i < maxLinks && (!requireComplete || refreshCompletenessShortfall(involved, targetCovered, roster)); i += 1) {
     let roles = null;
     let register = null;
@@ -382,9 +379,6 @@ export async function refreshGossip({
     }
     tidbits.push(result.tidbit);
     batchRoles.set(result.tidbit.id, { roles, register });
-    await store.mutate((state) => {
-      state.tidbits.push(result.tidbit);
-    });
     usedTargetSets.add(rumorTargetSetKey(roles.targets));
     involved.add(roles.teller.id);
     roles.hearers.forEach((p) => involved.add(p.id));
@@ -416,14 +410,11 @@ export async function refreshGossip({
       minLength,
     });
     finalTidbits = reviewed;
-    const byId = new Map(reviewed.map((t) => [t.id, t]));
-    await store.mutate((state) => {
-      state.tidbits = state.tidbits.map((t) => byId.get(t.id) || t);
-    });
   }
   await store.mutate((state) => {
+    state.tidbits = finalTidbits;
     appendGeneratedGossipHistory(state, finalTidbits.map((t) => t.text), historyGenerations);
-    state.gossipComments = pruneGossipCommentsToTidbits(state.tidbits, state.gossipComments);
+    state.gossipComments = pruneGossipCommentsToTidbits(finalTidbits, state.gossipComments);
   });
   log.info?.(`[gossip] refreshed board with ${tidbits.length} linked tidbit(s) for ${day}`);
   return { refreshed: finalTidbits.length, rejected: rejected.length, day, tidbits: finalTidbits };

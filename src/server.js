@@ -36,9 +36,23 @@ export function buildTidbitPage(tidbits) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Station Gossip</title></head><body><h1>Station Gossip</h1><ol>${items}</ol></body></html>`;
 }
 
-export function createServer({ store, adapter, config, log = console, watcher, generate, pickRoles }) {
+export function createServer({
+  store,
+  adapter,
+  config,
+  log = console,
+  watcher,
+  generate,
+  pickRoles,
+  summarizeSouls: summarizeSoulsHook,
+  summarizeHouseRules: summarizeHouseRulesHook,
+}) {
   const generateFn = generate || ((args) => generateSeed({ config, log, ...args }));
   const generateReviewFn = (args) => generateReview({ config, log, ...args });
+  const summarizeSoulsFn = summarizeSoulsHook
+    || ((personas) => summarizePersonaSouls({ config, personas, log }));
+  const summarizeHouseRulesFn = summarizeHouseRulesHook
+    || ((rules) => summarizeHouseRules({ config, houseRules: rules, log }));
   return http.createServer(async (req, res) => {
     try {
       if (store?.reload) await store.reload();
@@ -75,8 +89,8 @@ export function createServer({ store, adapter, config, log = console, watcher, g
           adapter,
           generate: generateFn,
           generateReview: generateReviewFn,
-          summarizeSouls: (personas) => summarizePersonaSouls({ config, personas, log }),
-          summarizeHouseRules: (rules) => summarizeHouseRules({ config, houseRules: rules, log }),
+          summarizeSouls: summarizeSoulsFn,
+          summarizeHouseRules: summarizeHouseRulesFn,
           reviewRounds: config.reviewRounds,
           cap: Number.isInteger(cap) && cap > 0 ? Math.min(cap, 10) : 1,
           historyGenerations: config.gossipHistoryGenerations,
