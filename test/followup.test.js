@@ -206,7 +206,7 @@ test('appendGeneratedGossip stores on-air text with null hearers and is idempote
   });
   assert.equal(second.skipped, true);
   const state = await read();
-  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory', 'gossipComments']);
+  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision']);
   assert.deepEqual(state.generatedGossipHistory, []);
   assert.equal(state.tidbits.length, 1);
   assert.equal(

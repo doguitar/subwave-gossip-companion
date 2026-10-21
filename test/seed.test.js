@@ -1352,6 +1352,40 @@ test('a second refresh does not commit over a refresh that already committed', a
   assert.equal(disk.generatedGossipHistory.flat().some((line) => line.includes(late)), false);
 });
 
+test('two refreshes starting from an empty board keep only the first commit', async () => {
+  const { filePath, read } = await tempStore();
+  const barrier = await mkdtemp(path.join(tmpdir(), 'gossip-barrier-'));
+  const late = 'unconfirmed the late refresh must not land tonight';
+  const early = 'unconfirmed the booth kettle whistled through the legal ID';
+  const [slow, fast] = await Promise.all([
+    runGossipAction('refresh', {
+      STATE_PATH: filePath,
+      RUMOR: late,
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'slow',
+      BARRIER_PEERS: 'slow,fast',
+      DELAY_MS: '700',
+    }),
+    runGossipAction('refresh', {
+      STATE_PATH: filePath,
+      RUMOR: early,
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'fast',
+      BARRIER_PEERS: 'slow,fast',
+    }),
+  ]);
+  assert.equal(fast.status, 0, fast.stderr);
+  assert.equal(slow.status, 1);
+  assert.equal(slow.stderr.includes(filePath), true);
+  assert.match(slow.stderr, /another refresh already committed/);
+  const disk = await read();
+  assert.equal(disk.boardRevision, 1);
+  assert.equal(disk.tidbits.length, 1);
+  assert.equal(disk.tidbits[0].text.includes(early), true);
+  assert.equal(disk.tidbits[0].text.includes(late), false);
+  assert.equal(disk.generatedGossipHistory.flat().some((line) => line.includes(late)), false);
+});
+
 test('refresh keeps an incremental commit made during generation in another process', async () => {
   const { filePath, read } = await tempStore({
     tidbits: [tidbit({ id: 'baseline', text: 'baseline rumor', hearerPersonaIds: null })],

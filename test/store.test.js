@@ -20,7 +20,7 @@ import {
 import { acquireMutationLock, acquireServerOwnership } from '../src/workspaceLock.js';
 import { PERSONA_A, PERSONA_B, runGossipAction, tempStore, tidbit } from './helpers.js';
 
-const EMPTY_BOARD = { tidbits: [], generatedGossipHistory: [], gossipComments: [] };
+const EMPTY_BOARD = { tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0 };
 
 async function storeWithBytes(contents) {
   const dir = await mkdtemp(path.join(tmpdir(), 'gossip-'));
@@ -32,14 +32,14 @@ async function storeWithBytes(contents) {
 test('store loads reduced shape and persists a queued mutation atomically', async () => {
   const { store, read } = await tempStore();
   const snap = store.snapshot();
-  assert.deepEqual(Object.keys(snap), ['tidbits', 'generatedGossipHistory', 'gossipComments']);
+  assert.deepEqual(Object.keys(snap), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision']);
   assert.deepEqual(snap.generatedGossipHistory, []);
   assert.deepEqual(snap.gossipComments, []);
   await store.mutate((s) => {
     s.tidbits.push(tidbit());
   });
   const disk = await read();
-  assert.deepEqual(Object.keys(disk), ['tidbits', 'generatedGossipHistory', 'gossipComments']);
+  assert.deepEqual(Object.keys(disk), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision']);
   assert.equal(disk.tidbits.length, 1);
   assert.equal(currentTidbits(disk).length, 1);
   assert.equal(disk.tidbits[0].tellerPersonaId, PERSONA_A.id);
@@ -56,6 +56,8 @@ test('legacy tidbits-only state normalizes to empty generatedGossipHistory', () 
   assert.equal(state.tidbits[0].text, 'legacy item');
   assert.equal(state.tidbits[0].id, legacyTidbitId({ text: 'legacy item', createdAt: '2026-09-19T00:00:00.000Z' }));
   assert.deepEqual(state.gossipComments, []);
+  assert.equal(state.boardRevision, 0);
+  assert.equal(normalizeState({ ...state, boardRevision: 3 }).boardRevision, 3);
 });
 
 test('legacy tidbits receive stable thread metadata and persisted tellings retire deterministically', async () => {

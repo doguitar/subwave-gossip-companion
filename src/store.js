@@ -7,7 +7,7 @@ import { acquireMutationLock } from './workspaceLock.js';
 const COMMENT_LIMIT = 1000;
 
 export function emptyState() {
-  return { tidbits: [], generatedGossipHistory: [], gossipComments: [] };
+  return { tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0 };
 }
 
 function normalizeHistoryBatch(raw) {
@@ -142,11 +142,20 @@ export function recordTidbitTelling(state, tidbitId, toldAt) {
   return toldAtList;
 }
 
+function normalizeBoardRevision(value) {
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
 export function normalizeState(parsed) {
   const tidbits = Array.isArray(parsed?.tidbits) ? parsed.tidbits.map(normalizeTidbit) : [];
   const generatedGossipHistory = normalizeGeneratedGossipHistory(parsed?.generatedGossipHistory);
   const gossipCommentsList = gossipComments(parsed).slice(-COMMENT_LIMIT);
-  return { tidbits, generatedGossipHistory, gossipComments: gossipCommentsList };
+  return {
+    tidbits,
+    generatedGossipHistory,
+    gossipComments: gossipCommentsList,
+    boardRevision: normalizeBoardRevision(parsed?.boardRevision),
+  };
 }
 
 function clone(value) {
