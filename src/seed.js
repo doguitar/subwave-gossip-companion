@@ -535,7 +535,7 @@ async function runRefreshGossip({
   const targetCovered = new Set();
   const usedTargetSets = new Set();
   const requireComplete = !pickRoles;
-  const maxLinks = strictCap || !requireComplete ? cap : Math.max(1, roster.length * 3);
+  const maxLinks = strictCap ? cap * 3 : (requireComplete ? Math.max(1, roster.length * 3) : cap);
   throwIfAborted(signal);
   await store.reload();
   throwIfAborted(signal);
@@ -545,7 +545,7 @@ async function runRefreshGossip({
   const retainedHistory = historyGenerations > 0
     ? generatedGossipHistory(store.snapshot()).flat()
     : [];
-  for (let i = 0; i < maxLinks && (!requireComplete || refreshCompletenessShortfall(involved, targetCovered, roster)); i += 1) {
+  for (let i = 0; i < maxLinks && (strictCap ? tidbits.length < cap : (!requireComplete || refreshCompletenessShortfall(involved, targetCovered, roster))); i += 1) {
     throwIfAborted(signal);
     let roles = null;
     let register = null;
@@ -597,7 +597,7 @@ async function runRefreshGossip({
   const shortfall = requireComplete && !strictCap
     ? refreshCompletenessShortfall(involved, targetCovered, roster)
     : null;
-  if (!tidbits.length || shortfall) {
+  if (strictCap ? tidbits.length < cap : (!tidbits.length || shortfall)) {
     throw Object.assign(new Error('LLM produced no complete station-wide hallway chain'), {
       status: 502,
       rejected,
