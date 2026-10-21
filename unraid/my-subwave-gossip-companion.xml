@@ -21,6 +21,9 @@
   <Config Name="PROVIDER_KEY" Target="PROVIDER_KEY" Default="" Description="LLM provider API key." Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="PROVIDER_MODEL" Target="PROVIDER_MODEL" Default="gpt-4o-mini" Description="LLM model name." Type="Variable" Display="always" Required="true" Mask="false">gpt-4o-mini</Config>
   <Config Name="OPENAI_BASE_URL" Target="OPENAI_BASE_URL" Default="https://api.openai.com/v1" Description="OpenAI-compatible API base URL." Type="Variable" Display="advanced" Required="true" Mask="false">https://api.openai.com/v1</Config>
+  <Config Name="GOSSIP_REFRESH_SECRET" Target="GOSSIP_REFRESH_SECRET" Default="" Description="Required dedicated operator secret for refresh HTTP requests." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="GOSSIP_REFRESH_MAX_CONCURRENCY" Target="GOSSIP_REFRESH_MAX_CONCURRENCY" Default="1" Description="Maximum simultaneous refreshes (1-10)." Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
+  <Config Name="GOSSIP_REFRESH_MIN_INTERVAL_MS" Target="GOSSIP_REFRESH_MIN_INTERVAL_MS" Default="60000" Description="Minimum milliseconds between admitted refreshes (0-3600000)." Type="Variable" Display="advanced" Required="true" Mask="false">60000</Config>
   <Config Name="GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="http://127.0.0.1:8080" Description="Public base URL used by the station skill." Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8080</Config>
   <Config Name="GOSSIP_TIMEZONE" Target="GOSSIP_TIMEZONE" Default="America/Los_Angeles" Description="Station timezone." Type="Variable" Display="always" Required="true" Mask="false">America/Los_Angeles</Config>
 </Container>

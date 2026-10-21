@@ -19,6 +19,7 @@ const apiEnv = {
   SUBWAVE_API_URL: 'https://listen.example/api',
   SUBWAVE_API_USER: 'admin',
   SUBWAVE_API_PASSWORD: 'x',
+  GOSSIP_REFRESH_SECRET: 'test-secret',
 };
 
 function seq(values) {

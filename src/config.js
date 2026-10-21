@@ -10,6 +10,8 @@ const DEFAULT_GOSSIP_HISTORY_GENERATIONS = 7;
 const DEFAULT_GOSSIP_REVIEW_ROUNDS = 0;
 const DEFAULT_THREAD_MAX_TELLINGS = 3;
 const DEFAULT_THREAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_REFRESH_MAX_CONCURRENCY = 1;
+const DEFAULT_REFRESH_MIN_INTERVAL_MS = 60_000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -83,6 +85,16 @@ export function loadConfig(env = process.env) {
   const threadMaxAgeMs = Number(env.GOSSIP_THREAD_MAX_AGE_MS ?? String(DEFAULT_THREAD_MAX_AGE_MS));
   if (!Number.isFinite(threadMaxAgeMs) || threadMaxAgeMs < 1) {
     errors.push('GOSSIP_THREAD_MAX_AGE_MS must be a positive number');
+  }
+  const refreshSecret = (env.GOSSIP_REFRESH_SECRET || '').trim();
+  if (!refreshSecret) errors.push('GOSSIP_REFRESH_SECRET is required');
+  const refreshMaxConcurrency = Number(env.GOSSIP_REFRESH_MAX_CONCURRENCY ?? String(DEFAULT_REFRESH_MAX_CONCURRENCY));
+  if (!Number.isInteger(refreshMaxConcurrency) || refreshMaxConcurrency < 1 || refreshMaxConcurrency > 10) {
+    errors.push('GOSSIP_REFRESH_MAX_CONCURRENCY must be an integer 1-10');
+  }
+  const refreshMinIntervalMs = Number(env.GOSSIP_REFRESH_MIN_INTERVAL_MS ?? String(DEFAULT_REFRESH_MIN_INTERVAL_MS));
+  if (!Number.isInteger(refreshMinIntervalMs) || refreshMinIntervalMs < 0 || refreshMinIntervalMs > 3_600_000) {
+    errors.push('GOSSIP_REFRESH_MIN_INTERVAL_MS must be an integer 0-3600000');
   }
 
   const host = (env.GOSSIP_HOST || '0.0.0.0').trim();
@@ -161,6 +173,13 @@ export function loadConfig(env = process.env) {
     reviewRounds: Number.isInteger(reviewRounds) ? reviewRounds : DEFAULT_GOSSIP_REVIEW_ROUNDS,
     threadMaxTellings: Number.isInteger(threadMaxTellings) ? threadMaxTellings : DEFAULT_THREAD_MAX_TELLINGS,
     threadMaxAgeMs: Number.isFinite(threadMaxAgeMs) && threadMaxAgeMs > 0 ? threadMaxAgeMs : DEFAULT_THREAD_MAX_AGE_MS,
+    refreshSecret,
+    refreshMaxConcurrency: Number.isInteger(refreshMaxConcurrency) && refreshMaxConcurrency >= 1 && refreshMaxConcurrency <= 10
+      ? refreshMaxConcurrency
+      : DEFAULT_REFRESH_MAX_CONCURRENCY,
+    refreshMinIntervalMs: Number.isInteger(refreshMinIntervalMs) && refreshMinIntervalMs >= 0 && refreshMinIntervalMs <= 3_600_000
+      ? refreshMinIntervalMs
+      : DEFAULT_REFRESH_MIN_INTERVAL_MS,
     statePath,
     feedBaseUrl,
     timezone,

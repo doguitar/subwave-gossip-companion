@@ -33,3 +33,17 @@ test('refresh count environment value is validated', () => {
   assert.equal(config.refreshCount, 1);
   assert.ok(errors.includes('GOSSIP_REFRESH_COUNT must be an integer 1-10'));
 });
+
+test('refresh authentication and admission configuration are strict', () => {
+  const missing = loadConfig({});
+  assert.ok(missing.errors.includes('GOSSIP_REFRESH_SECRET is required'));
+
+  const { config, errors } = loadConfig({
+    GOSSIP_REFRESH_SECRET: 'operator-secret',
+    GOSSIP_REFRESH_MAX_CONCURRENCY: '0',
+    GOSSIP_REFRESH_MIN_INTERVAL_MS: '-1',
+  });
+  assert.equal(config.refreshSecret, 'operator-secret');
+  assert.ok(errors.includes('GOSSIP_REFRESH_MAX_CONCURRENCY must be an integer 1-10'));
+  assert.ok(errors.includes('GOSSIP_REFRESH_MIN_INTERVAL_MS must be an integer 0-3600000'));
+});

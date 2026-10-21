@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import { parseRefreshCount } from './config.js';
 import { currentTidbits, gossipForActor } from './store.js';
@@ -5,7 +6,6 @@ import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
 import { generateReview, generateSeed, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
-
 async function readJsonBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -36,6 +36,14 @@ export function buildTidbitPage(tidbits) {
   const items = tidbits.map((tidbit) => `<li>${escapeHtml(tidbit.text)}</li>`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>Station Gossip</title></head><body><h1>Station Gossip</h1><ol>${items}</ol></body></html>`;
 }
+function secretDigest(value) {
+  return createHash('sha256').update(value).digest();
+}
+
+function hasRefreshCredential(req, secret) {
+  const credential = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+  return timingSafeEqual(secretDigest(credential), secretDigest(`Bearer ${secret}`));
+}
 
 export function createServer({
   store,
@@ -55,9 +63,10 @@ export function createServer({
     || ((personas) => summarizePersonaSouls({ config, personas, log }));
   const summarizeHouseRulesFn = summarizeHouseRulesHook
     || ((rules) => summarizeHouseRules({ config, houseRules: rules, log }));
+  let activeRefreshes = 0;
+  let lastRefreshAdmissionAt = -Infinity;
   return http.createServer(async (req, res) => {
     try {
-      if (store?.reload) await store.reload();
       const url = new URL(req.url || '/', `http://${req.headers.host || `${config.host}:${config.port}`}`);
       const remote = req.socket?.remoteAddress || '-';
       if (req.method === 'GET' && url.pathname === '/') {
@@ -77,52 +86,73 @@ export function createServer({
           res.end('POST to generate a fresh rumor and replace the board\n');
           return;
         }
-        let body = {};
-        try {
-          body = await readJsonBody(req);
-        } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ error: 'invalid JSON body' }));
+        if (!config.refreshSecret || !hasRefreshCredential(req, config.refreshSecret)) {
+          res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8', 'WWW-Authenticate': 'Bearer' });
+          res.end(JSON.stringify({ error: 'unauthorized' }));
           return;
         }
-        const rawCount = url.searchParams.has('count')
-          ? url.searchParams.get('count')
-          : Object.hasOwn(body, 'count')
-            ? body.count
-            : config.refreshCount;
-        let cap;
-        try {
-          cap = parseRefreshCount(rawCount, 'refresh count');
-        } catch (err) {
-          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ error: err.message }));
+        const refreshMaxConcurrency = config.refreshMaxConcurrency ?? 1;
+        const refreshMinIntervalMs = config.refreshMinIntervalMs ?? 60_000;
+        const admittedAt = Date.now();
+        if (activeRefreshes >= refreshMaxConcurrency || admittedAt - lastRefreshAdmissionAt < refreshMinIntervalMs) {
+          res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'refresh admission limit exceeded' }));
           return;
         }
-        const controller = new AbortController();
-        req.once('aborted', () => controller.abort());
-        const result = await refreshGossip({
-          store,
-          adapter,
-          generate: generateFn,
-          generateReview: generateReviewFn,
-          summarizeSouls: summarizeSoulsFn,
-          summarizeHouseRules: summarizeHouseRulesFn,
-          reviewRounds: config.reviewRounds,
-          cap,
-          strictCap: true,
-          historyGenerations: config.gossipHistoryGenerations,
-          timezone: config.timezone,
-          minLength: config.minRumorLength,
-          log,
-          pickRoles,
-          rumorRegisters: config.rumorRegisters,
-          signal: controller.signal,
-        });
-        if (res.destroyed) return;
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify(result));
-        return;
+        activeRefreshes += 1;
+        lastRefreshAdmissionAt = admittedAt;
+        try {
+          let body = {};
+          try {
+            body = await readJsonBody(req);
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: 'invalid JSON body' }));
+            return;
+          }
+          const rawCount = url.searchParams.has('count')
+            ? url.searchParams.get('count')
+            : Object.hasOwn(body, 'count')
+              ? body.count
+              : config.refreshCount;
+          let cap;
+          try {
+            cap = parseRefreshCount(rawCount, 'refresh count');
+          } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: err.message }));
+            return;
+          }
+          await store.reload?.();
+          const controller = new AbortController();
+          req.once('aborted', () => controller.abort());
+          const result = await refreshGossip({
+            store,
+            adapter,
+            generate: generateFn,
+            generateReview: generateReviewFn,
+            summarizeSouls: summarizeSoulsFn,
+            summarizeHouseRules: summarizeHouseRulesFn,
+            reviewRounds: config.reviewRounds,
+            cap,
+            strictCap: true,
+            historyGenerations: config.gossipHistoryGenerations,
+            timezone: config.timezone,
+            minLength: config.minRumorLength,
+            log,
+            pickRoles,
+            rumorRegisters: config.rumorRegisters,
+            signal: controller.signal,
+          });
+          if (res.destroyed) return;
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(result));
+          return;
+        } finally {
+          activeRefreshes -= 1;
+        }
       }
+      await store.reload?.();
       if (req.method !== 'GET' || url.pathname !== '/gossip.rss') {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('not found\n');
