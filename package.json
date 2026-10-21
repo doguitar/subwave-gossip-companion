@@ -11,6 +11,6 @@
     "gossip:seed": "node src/cli.js seed",
     "gossip:refresh": "node src/cli.js refresh",
     "gossip:ingest-spoken": "node src/cli.js ingest-spoken",
-    "test": "node --test test/*.test.js"
+    "test": "node --test --test-concurrency=1 test/*.test.js"
   }
 }

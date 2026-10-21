@@ -17,6 +17,9 @@ PROVIDER_KEY=...
 PROVIDER_MODEL=gpt-4o-mini
 OPENAI_BASE_URL=https://api.openai.com/v1
 PROVIDER_THINKING=
+GOSSIP_REFRESH_SECRET=use-a-long-random-operator-secret
+GOSSIP_REFRESH_MAX_CONCURRENCY=1
+GOSSIP_REFRESH_MIN_INTERVAL_MS=60000
 GOSSIP_REVIEW_ROUNDS=0
 GOSSIP_THREAD_MAX_TELLINGS=3
 GOSSIP_THREAD_MAX_AGE_MS=86400000
@@ -27,6 +30,8 @@ GOSSIP_THREAD_MAX_AGE_MS=86400000
 `GOSSIP_REVIEW_ROUNDS` (default `0`, range `0`–`5`) runs optional post-generation edit passes after a successful seed or refresh batch. Each round validates revisions against the canonical teller, hearer, target, and comic-register assignment made during generation; teller/hearer persona ids and the told/said-on-air wrapper stay fixed. Review logs and seed/refresh results report accepted, rejected, and stale candidates. Higher values add latency and LLM cost. At `0`, behavior matches pre-review releases (no extra model calls).
 
 `GOSSIP_REFRESH_COUNT` (default `1`, range `1`–`10`) is the default maximum number of accepted tidbits for one refresh. `node src/cli.js refresh [count]` accepts the same range as a one-run override, and `POST /gossip/refresh` accepts it as JSON `{ "count": 1 }` or a `count` query parameter. Explicit invalid counts are rejected. A low count may return a successful roster-incomplete board; `refreshed` and `tidbits` always report only the accepted tidbits and never exceed the requested count.
+
+`GOSSIP_REFRESH_SECRET` is required and is a dedicated operator credential for the HTTP refresh endpoints; it never falls back to Subwave or LLM credentials. Send it as `Authorization: Bearer <secret>`. `GOSSIP_REFRESH_MAX_CONCURRENCY` (default `1`, range `1`–`10`) bounds simultaneous admitted refreshes, and `GOSSIP_REFRESH_MIN_INTERVAL_MS` (default `60000`, range `0`–`3600000`) limits how frequently one process admits them. Rejected unauthenticated requests do not read a body or reload/generate gossip; requests exceeding either admission limit receive `429`.
 
 `GOSSIP_THREAD_MAX_TELLINGS` (default `3`, range `1`–`100`) and `GOSSIP_THREAD_MAX_AGE_MS` (default `86400000`) retire a thread from RSS selection after its attributed on-air telling count or age reaches the configured limit. RSS item shape remains unchanged.
 
@@ -92,13 +97,15 @@ node src/cli.js refresh 1 --base-dir .
 For a deployed instance, call the HTTP endpoint with `POST`. The request body is optional:
 
 ```bash
-curl -i -X POST http://127.0.0.1:8080/gossip/refresh
+curl -i -X POST http://127.0.0.1:8080/gossip/refresh \
+  -H "Authorization: Bearer $GOSSIP_REFRESH_SECRET"
 ```
 
 The same endpoint is available at `/refresh`:
 
 ```bash
-curl -i -X POST http://127.0.0.1:8080/refresh
+curl -i -X POST http://127.0.0.1:8080/refresh \
+  -H "Authorization: Bearer $GOSSIP_REFRESH_SECRET"
 ```
 
 The response is JSON containing the generated tidbits and generation status. `refreshed` equals `tidbits.length` and neither exceeds the requested count. Refresh requires the configured Subwave credentials and LLM provider settings.
@@ -136,4 +143,4 @@ curl -fsSL https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/m
   -o /boot/config/plugins/dockerMan/templates-user/my-subwave-gossip-companion.xml
 ```
 
-Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials, and apply. The template maps host port `8080` to container port `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`.
+Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials plus a long unique refresh operator secret, and apply. Keep the refresh secret private; the template masks it. Set conservative refresh admission values for an internet-reachable deployment. The template maps host port `8080` to container port `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`.

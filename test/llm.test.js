@@ -33,6 +33,7 @@ test('loadConfig maps PROVIDER / PROVIDER_KEY / PROVIDER_MODEL / OPENAI_BASE_URL
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
     PROVIDER: 'anthro',
     PROVIDER_KEY: 'sk-ant-test',
     PROVIDER_MODEL: 'claude-sonnet-4-5',
@@ -52,6 +53,7 @@ test('loadConfig omits llmThinkingLevel when thinking env is unset or whitespace
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
   };
   assert.equal('llmThinkingLevel' in loadConfig(base).config, false);
   assert.equal('llmThinkingLevel' in loadConfig({ ...base, PROVIDER_THINKING: '   ' }).config, false);
@@ -65,6 +67,7 @@ test('loadConfig maps PROVIDER_THINKING and GOSSIP_LLM_THINKING alias with prima
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
   };
   assert.equal(loadConfig({ ...base, PROVIDER_THINKING: 'medium' }).config.llmThinkingLevel, 'medium');
   assert.equal(loadConfig({ ...base, GOSSIP_LLM_THINKING: 'high' }).config.llmThinkingLevel, 'high');
@@ -81,6 +84,7 @@ test('loadConfig accepts GOSSIP_REVIEW_ROUNDS 0-5 and rejects out-of-range value
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
   };
   assert.equal(loadConfig({ ...base, GOSSIP_REVIEW_ROUNDS: '0' }).config.reviewRounds, 0);
   assert.equal(loadConfig({ ...base, GOSSIP_REVIEW_ROUNDS: '5' }).config.reviewRounds, 5);
@@ -96,6 +100,7 @@ test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
   });
   assert.deepEqual(errors, []);
   assert.equal(config.operationalLogPath, path.join(config.baseDir, 'logs', 'gossip.log'));
@@ -107,6 +112,7 @@ test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
     SUBWAVE_API_URL: 'https://listen.example/api',
     SUBWAVE_API_USER: 'admin',
     SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
   }).config;
   assert.equal(custom.operationalLogPath, path.join(custom.baseDir, 'var', 'run', 'gossip.log'));
 });

@@ -16,6 +16,9 @@ async function start(store, adapter, generate, pickRoles) {
     gossipHistoryGenerations: 7,
     threadMaxTellings: 3,
     threadMaxAgeMs: 24 * 60 * 60 * 1000,
+    refreshSecret: 'test-secret',
+    refreshMaxConcurrency: 1,
+    refreshMinIntervalMs: 0,
   };
   const server = createServer({
     store,
@@ -37,6 +40,52 @@ async function start(store, adapter, generate, pickRoles) {
 after(() => {
   for (const s of servers) s.close();
 });
+test('refresh aliases reject unauthorized bodies before reload or generation', async () => {
+  for (const path of ['/refresh', '/gossip/refresh']) {
+    let reloads = 0;
+    let generations = 0;
+    const { store } = await tempStore();
+    const originalReload = store.reload.bind(store);
+    store.reload = async () => { reloads += 1; await originalReload(); };
+    const base = await start(store, stubAdapter({ personas: [PERSONA_A] }), async () => {
+      generations += 1;
+      return { rumor: 'unused' };
+    });
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{',
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: 'unauthorized' });
+    assert.equal(reloads, 0);
+    assert.equal(generations, 0);
+  }
+});
+
+test('refresh admission rejects overlapping authenticated work', async () => {
+  const { store } = await tempStore();
+  let release;
+  const generationStarted = new Promise((resolve) => {
+    release = resolve;
+  });
+  let entered;
+  const enteredGeneration = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const base = await start(store, stubAdapter({ personas: [PERSONA_A] }), async () => {
+    entered();
+    await generationStarted;
+    return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+  });
+  const headers = { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' };
+  const first = fetch(`${base}/refresh`, { method: 'POST', headers, body: '{}' });
+  await enteredGeneration;
+  const second = await fetch(`${base}/gossip/refresh`, { method: 'POST', headers, body: '{}' });
+  assert.equal(second.status, 429);
+  release();
+  assert.equal((await first).status, 200);
+});
 
 test('POST /gossip/refresh clears the board and writes one told-shape rumor', async () => {
   const { store, read } = await tempStore({
@@ -54,7 +103,7 @@ test('POST /gossip/refresh clears the board and writes one told-shape rumor', as
   );
   const res = await fetch(`${base}/gossip/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
     body: JSON.stringify({ count: 1 }),
   });
   assert.equal(res.status, 200);
@@ -79,10 +128,11 @@ test('POST /gossip/refresh forwards one requested count without roster expansion
       calls += 1;
       return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
     },
+    () => ({ teller: PERSONA_A, hearers: [PERSONA_B], targets: [] }),
   );
   const res = await fetch(`${base}/gossip/refresh?count=1`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
     body: JSON.stringify({ count: 2 }),
   });
   assert.equal(res.status, 200);
@@ -97,7 +147,7 @@ test('POST /gossip/refresh rejects an explicit invalid count', async () => {
   const base = await start(store, stubAdapter({ personas: [PERSONA_A] }), async () => ({ rumor: 'unused' }));
   const res = await fetch(`${base}/gossip/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
     body: JSON.stringify({ count: 11 }),
   });
   assert.equal(res.status, 400);
@@ -120,7 +170,7 @@ test('POST /gossip/refresh returns 502 and leaves prior board and history on dis
   );
   const res = await fetch(`${base}/gossip/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
     body: JSON.stringify({ count: 1 }),
   });
   assert.equal(res.status, 502);
@@ -160,7 +210,7 @@ test('refresh penalizes recently used target pairs and distinctive props with de
   );
   const res = await fetch(`${base}/gossip/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
     body: JSON.stringify({ count: 1 }),
   });
   assert.equal(res.status, 200);

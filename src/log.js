@@ -8,16 +8,19 @@ export function formatRumorForOperationalLog(text) {
 
 export function createLog(operationalLogPath, consoleSink = console) {
   let reportedWriteError = false;
+  let appendQueue = Promise.resolve();
 
   const tee = (writeFn, message) => {
     writeFn(message);
     if (!operationalLogPath) return;
-    appendOperationalLog(operationalLogPath, String(message)).catch((err) => {
-      if (!reportedWriteError) {
-        reportedWriteError = true;
-        consoleSink.error(`[gossip] operational log write failed: ${err.message}`);
-      }
-    });
+    appendQueue = appendQueue
+      .then(() => appendOperationalLog(operationalLogPath, String(message)))
+      .catch((err) => {
+        if (!reportedWriteError) {
+          reportedWriteError = true;
+          consoleSink.error(`[gossip] operational log write failed: ${err.message}`);
+        }
+      });
   };
 
   return {

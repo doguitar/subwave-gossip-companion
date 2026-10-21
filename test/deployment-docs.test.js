@@ -35,6 +35,8 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
   );
   assert.match(readme, /http:\/\/127\.0\.0\.1:8080\/gossip\/refresh/);
   assert.match(readme, /http:\/\/127\.0\.0\.1:8080\/refresh/);
+  assert.match(readme, /GOSSIP_REFRESH_SECRET/);
+  assert.match(readme, /Authorization: Bearer/);
   assert.doesNotMatch(readme, /http:\/\/127\.0\.0\.1:8095/);
 
   assert.match(
@@ -44,5 +46,9 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
   assert.match(
     unraidTemplate,
     /<Config Name="GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="http:\/\/127\.0\.0\.1:8080"[^>]*>http:\/\/127\.0\.0\.1:8080<\/Config>/,
+  );
+  assert.match(
+    unraidTemplate,
+    /<Config Name="GOSSIP_REFRESH_SECRET" Target="GOSSIP_REFRESH_SECRET" Default=""[^>]*Mask="true"/,
   );
 });
