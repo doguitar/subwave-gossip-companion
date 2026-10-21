@@ -12,6 +12,9 @@ const DEFAULT_THREAD_MAX_TELLINGS = 3;
 const DEFAULT_THREAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_REFRESH_MAX_CONCURRENCY = 1;
 const DEFAULT_REFRESH_MIN_INTERVAL_MS = 60_000;
+const DEFAULT_REFRESH_BODY_MAX_BYTES = 16 * 1024;
+const DEFAULT_HTTP_HEADERS_TIMEOUT_MS = 10_000;
+const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -95,6 +98,24 @@ export function loadConfig(env = process.env) {
   const refreshMinIntervalMs = Number(env.GOSSIP_REFRESH_MIN_INTERVAL_MS ?? String(DEFAULT_REFRESH_MIN_INTERVAL_MS));
   if (!Number.isInteger(refreshMinIntervalMs) || refreshMinIntervalMs < 0 || refreshMinIntervalMs > 3_600_000) {
     errors.push('GOSSIP_REFRESH_MIN_INTERVAL_MS must be an integer 0-3600000');
+  }
+  const refreshBodyMaxBytes = Number(
+    env.GOSSIP_REFRESH_BODY_MAX_BYTES ?? String(DEFAULT_REFRESH_BODY_MAX_BYTES),
+  );
+  if (!Number.isInteger(refreshBodyMaxBytes) || refreshBodyMaxBytes < 1 || refreshBodyMaxBytes > 1_048_576) {
+    errors.push('GOSSIP_REFRESH_BODY_MAX_BYTES must be an integer 1-1048576');
+  }
+  const headersTimeoutMs = Number(
+    env.GOSSIP_HEADERS_TIMEOUT_MS ?? String(DEFAULT_HTTP_HEADERS_TIMEOUT_MS),
+  );
+  if (!Number.isInteger(headersTimeoutMs) || headersTimeoutMs < 1_000 || headersTimeoutMs > 300_000) {
+    errors.push('GOSSIP_HEADERS_TIMEOUT_MS must be an integer 1000-300000');
+  }
+  const requestTimeoutMs = Number(
+    env.GOSSIP_REQUEST_TIMEOUT_MS ?? String(DEFAULT_HTTP_REQUEST_TIMEOUT_MS),
+  );
+  if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1_000 || requestTimeoutMs > 300_000) {
+    errors.push('GOSSIP_REQUEST_TIMEOUT_MS must be an integer 1000-300000');
   }
 
   const host = (env.GOSSIP_HOST || '0.0.0.0').trim();
@@ -180,6 +201,15 @@ export function loadConfig(env = process.env) {
     refreshMinIntervalMs: Number.isInteger(refreshMinIntervalMs) && refreshMinIntervalMs >= 0 && refreshMinIntervalMs <= 3_600_000
       ? refreshMinIntervalMs
       : DEFAULT_REFRESH_MIN_INTERVAL_MS,
+    refreshBodyMaxBytes: Number.isInteger(refreshBodyMaxBytes) && refreshBodyMaxBytes >= 1 && refreshBodyMaxBytes <= 1_048_576
+      ? refreshBodyMaxBytes
+      : DEFAULT_REFRESH_BODY_MAX_BYTES,
+    headersTimeoutMs: Number.isInteger(headersTimeoutMs) && headersTimeoutMs >= 1_000 && headersTimeoutMs <= 300_000
+      ? headersTimeoutMs
+      : DEFAULT_HTTP_HEADERS_TIMEOUT_MS,
+    requestTimeoutMs: Number.isInteger(requestTimeoutMs) && requestTimeoutMs >= 1_000 && requestTimeoutMs <= 300_000
+      ? requestTimeoutMs
+      : DEFAULT_HTTP_REQUEST_TIMEOUT_MS,
     statePath,
     feedBaseUrl,
     timezone,
