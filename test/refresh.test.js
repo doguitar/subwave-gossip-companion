@@ -69,6 +69,41 @@ test('POST /gossip/refresh clears the board and writes one told-shape rumor', as
   assert.equal(disk.tidbits[0].text, body.tidbits[0].text);
 });
 
+test('POST /gossip/refresh forwards one requested count without roster expansion', async () => {
+  const { store } = await tempStore();
+  let calls = 0;
+  const base = await start(
+    store,
+    stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    async () => {
+      calls += 1;
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+    },
+  );
+  const res = await fetch(`${base}/gossip/refresh?count=1`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ count: 2 }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(calls, 1);
+  assert.equal(body.refreshed, 1);
+  assert.equal(body.tidbits.length, 1);
+});
+
+test('POST /gossip/refresh rejects an explicit invalid count', async () => {
+  const { store } = await tempStore();
+  const base = await start(store, stubAdapter({ personas: [PERSONA_A] }), async () => ({ rumor: 'unused' }));
+  const res = await fetch(`${base}/gossip/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ count: 11 }),
+  });
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: 'refresh count must be an integer 1-10' });
+});
+
 test('POST /gossip/refresh returns 502 and leaves prior board and history on disk', async () => {
   const staleText = 'stale item must survive refresh failure';
   const priorHistory = [['Beta told Alpha, "prior generated gossip line"']];

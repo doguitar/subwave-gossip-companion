@@ -26,6 +26,8 @@ GOSSIP_THREAD_MAX_AGE_MS=86400000
 
 `GOSSIP_REVIEW_ROUNDS` (default `0`, range `0`–`5`) runs optional post-generation edit passes after a successful seed or refresh batch. Each round validates revisions against the canonical teller, hearer, target, and comic-register assignment made during generation; teller/hearer persona ids and the told/said-on-air wrapper stay fixed. Review logs and seed/refresh results report accepted, rejected, and stale candidates. Higher values add latency and LLM cost. At `0`, behavior matches pre-review releases (no extra model calls).
 
+`GOSSIP_REFRESH_COUNT` (default `1`, range `1`–`10`) is the default maximum number of accepted tidbits for one refresh. `node src/cli.js refresh [count]` accepts the same range as a one-run override, and `POST /gossip/refresh` accepts it as JSON `{ "count": 1 }` or a `count` query parameter. Explicit invalid counts are rejected. A low count may return a successful roster-incomplete board; `refreshed` and `tidbits` always report only the accepted tidbits and never exceed the requested count.
+
 `GOSSIP_THREAD_MAX_TELLINGS` (default `3`, range `1`–`100`) and `GOSSIP_THREAD_MAX_AGE_MS` (default `86400000`) retire a thread from RSS selection after its attributed on-air telling count or age reaches the configured limit. RSS item shape remains unchanged.
 
 `GOSSIP_BASE_DIR` is the runtime data root. Relative state, prompt, gossip-type catalog, call-log, and operational-log paths resolve below it. The system prompt is always read from `prompt.md` in the workspace. On each start, the image-bundled prompt is written to `prompt.md.default` (overwriting any prior snapshot so upgrades refresh the reference copy without changing your live `prompt.md`). If `prompt.md` is missing or empty, it is seeded from that default before configuration loads. When trimmed `prompt.md` differs from trimmed `prompt.md.default`, startup emits one `[gossip]` warning line to the operational log (and console tee). Comic rumor registers (gossip types) live in `GOSSIP_TYPES_PATH` (default `gossip-types.json` under the base directory): a JSON array of objects with `slug` and `guidance` (optional `name`; otherwise the slug is humanized for display). Optional `targetCount` (non-negative integer, at most `2`) limits a register to rumors with exactly that many rumor-targets: use `0` for station-life bits with no named targets, `2` for two-target feud registers, or omit the field to allow any target count (default behavior). On first run, if that file is missing, the companion writes the same four built-in registers shipped with the image. Duplicate slugs or an empty catalog fail startup. Operational `[gossip]` lines tee to stdout/stderr and append to `GOSSIP_OPERATIONAL_LOG` (default `logs/gossip.log`); each line is one physical log event with no embedded newlines. Accepted tidbits and review text changes (before→after quoted rumor) are echoed at `info` when generation or review succeeds; seed/review HTTP calls still log only one-line start summaries. Provider preflight, LLM-call, and follow-up lifecycle events use versioned JSON payloads and redact provider credentials from diagnostic details. Full system and user prompts for each LLM call are recorded in the active LLM call log (`GOSSIP_LLM_CALL_LOG`, default `logs/llm-calls.jsonl`), which rolls to a timestamped sibling when an append would exceed 512 KiB, and rolled segments older than seven days are removed on each write.
@@ -50,7 +52,7 @@ The request includes the house-rules summary, persona summaries, and (per rumor)
 npm install
 npm test
 node src/cli.js serve --base-dir .
-node src/cli.js refresh --base-dir .
+node src/cli.js refresh 1 --base-dir .
 node src/cli.js generate --base-dir . --reasoning low --review-steps 1
 node src/cli.js summarize-souls --base-dir .
 ```
@@ -81,10 +83,10 @@ The CLI refresh replaces the current board with a new linked set of tidbits. On 
 
 During one refresh, each successfully appended rumor uses a distinct rumor-target persona set—the unordered persona IDs in `roles.targets`, including the empty set when there are zero targets. The refresh loop resamples role picks up to a small retry budget when a set would repeat; only accepted tidbits reserve a set, and deduplication is scoped to that batch only (not prior days or generated history).
 
-On the default refresh path (no injected role picker), the loop keeps generating until every roster persona has appeared as teller or hearer on at least one accepted rumor and as a rumor-target on at least one accepted rumor. Empty target sets do not count toward target coverage. Refreshes that inject a fixed role picker or use a low link cap skip that completeness check. If the link budget is exhausted before both conditions hold, the refresh fails with no successful board replacement, same as an incomplete telephone chain.
+On the default refresh path (no injected role picker), the loop pursues every roster persona appearing as teller or hearer on at least one accepted rumor and as a rumor-target on at least one accepted rumor. Empty target sets do not count toward target coverage. It stops as soon as that coverage is complete or the requested count is reached; a low count can therefore successfully return a roster-incomplete board.
 
 ```bash
-node src/cli.js refresh --base-dir .
+node src/cli.js refresh 1 --base-dir .
 ```
 
 For a deployed instance, call the HTTP endpoint with `POST`. The request body is optional:
@@ -99,7 +101,7 @@ The same endpoint is available at `/refresh`:
 curl -i -X POST http://127.0.0.1:8080/refresh
 ```
 
-The response is JSON containing the generated tidbits and generation status. Refresh requires the configured Subwave credentials and LLM provider settings.
+The response is JSON containing the generated tidbits and generation status. `refreshed` equals `tidbits.length` and neither exceeds the requested count. Refresh requires the configured Subwave credentials and LLM provider settings.
 
 ## Docker
 
