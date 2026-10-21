@@ -1,4 +1,6 @@
 # Station gossip companion. The image runs only `serve`; schedule these on the host.
+# One serve per workspace. These writers are serialized with that serve on the gossip state file.
+# Do not start a second serve or a second container on the same workspace.
 # Times assume the station timezone. Code lives in /app; persistent state is /workspace.
 # Daily refresh replaces the active slate. Use seed only when you mean to append.
 0 4 * * * cd /app && node src/cli.js refresh --base-dir /workspace

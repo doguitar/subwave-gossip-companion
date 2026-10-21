@@ -3,6 +3,7 @@ import path from 'node:path';
 import { applyDotEnv, parseRefreshCount, requireConfig } from './config.js';
 import { ensurePromptWorkspace, warnIfPromptDrift } from './promptWorkspace.js';
 import { GossipStore } from './store.js';
+import { acquireServerOwnership } from './workspaceLock.js';
 import { SubwaveAdapter } from './subwave.js';
 import { createServer, listen } from './server.js';
 import { refreshGossip, seedGossip } from './seed.js';
@@ -77,6 +78,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   warnIfPromptDrift(config.baseDir, log);
   if (config.llmCallLogPath) await maintainLlmCallLog(config.llmCallLogPath);
   const store = new GossipStore(config.statePath);
+  if (command === 'serve') await acquireServerOwnership(config.statePath);
   await store.load();
   if (['generate', 'seed', 'gossip:seed', 'refresh', 'gossip:refresh', 'summarize-souls'].includes(command)) {
     await preflightProvider({ config, log });

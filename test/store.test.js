@@ -17,7 +17,8 @@ import {
   recordTidbitTelling,
   tidbitsKnownBy,
 } from '../src/store.js';
-import { PERSONA_A, PERSONA_B, tempStore, tidbit } from './helpers.js';
+import { acquireMutationLock, acquireServerOwnership } from '../src/workspaceLock.js';
+import { PERSONA_A, PERSONA_B, runGossipAction, tempStore, tidbit } from './helpers.js';
 
 const EMPTY_BOARD = { tidbits: [], generatedGossipHistory: [], gossipComments: [] };
 
@@ -402,4 +403,134 @@ test('parseable empty and legacy documents still normalize on load', async () =>
   assert.deepEqual(snap.generatedGossipHistory, []);
   assert.deepEqual(snap.gossipComments, []);
   assert.equal(await readFile(filePath, 'utf8'), legacy);
+});
+
+test('one-process mutate re-reads the latest queued document', async () => {
+  const { store, read } = await tempStore();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const first = store.mutate(async (state) => {
+    state.tidbits.push(tidbit({ id: 'first', text: 'first queued rumor' }));
+    await gate;
+  });
+  const second = store.mutate((state) => {
+    assert.equal(state.tidbits.some((item) => item.id === 'first'), true);
+    state.tidbits.push(tidbit({ id: 'second', text: 'second queued rumor' }));
+  });
+  release();
+  await Promise.all([first, second]);
+  const disk = await read();
+  assert.deepEqual(disk.tidbits.map((item) => item.id), ['first', 'second']);
+});
+
+test('overlapping processes keep incremental tidbits, comments, and tellings', async () => {
+  const { filePath, read } = await tempStore({
+    tidbits: [tidbit({ id: 'existing', text: 'existing rumor', hearerPersonaIds: [PERSONA_B.id] })],
+  });
+  const common = { STATE_PATH: filePath, DELAY_MS: '200' };
+  const [seeded, spoken, followed] = await Promise.all([
+    runGossipAction('mutate-append', {
+      ...common,
+      TIDBIT_ID: 'seed-bit',
+      TIDBIT_TEXT: 'seed append rumor',
+      COMMENT_ID: 'seed-comment',
+      TOLD_AT: '2026-09-19T02:00:00.000Z',
+      HISTORY_LINE: 'seed history line',
+    }),
+    runGossipAction('mutate-append', {
+      ...common,
+      TIDBIT_ID: 'spoken-bit',
+      TIDBIT_TEXT: 'spoken ingest rumor',
+      COMMENT_ID: 'spoken-comment',
+      COMMENT_TIDBIT: 'existing',
+      PUBLIC_TIDBIT: 'existing',
+      TOLD_AT: '2026-09-19T03:00:00.000Z',
+      HISTORY_LINE: 'spoken history line',
+    }),
+    runGossipAction('mutate-append', {
+      ...common,
+      TIDBIT_ID: 'follow-bit',
+      TIDBIT_TEXT: 'on-air follow-up rumor',
+      COMMENT_ID: 'follow-comment',
+      TOLD_AT: '2026-09-19T04:00:00.000Z',
+      HISTORY_LINE: 'follow history line',
+    }),
+  ]);
+  for (const result of [seeded, spoken, followed]) {
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const disk = await read();
+  assert.deepEqual(
+    disk.tidbits.map((item) => item.id).sort(),
+    ['existing', 'follow-bit', 'seed-bit', 'spoken-bit'],
+  );
+  assert.deepEqual(
+    disk.gossipComments.map((item) => item.id).sort(),
+    ['follow-comment', 'seed-comment', 'spoken-comment'],
+  );
+  assert.equal(disk.gossipComments.find((item) => item.id === 'spoken-comment').tidbitId, 'existing');
+  assert.equal(disk.tidbits.find((item) => item.id === 'existing').hearerPersonaIds, null);
+  assert.deepEqual(disk.tidbits.find((item) => item.id === 'seed-bit').toldAt, ['2026-09-19T02:00:00.000Z']);
+  assert.deepEqual(disk.tidbits.find((item) => item.id === 'spoken-bit').toldAt, ['2026-09-19T03:00:00.000Z']);
+  assert.deepEqual(disk.tidbits.find((item) => item.id === 'follow-bit').toldAt, ['2026-09-19T04:00:00.000Z']);
+  const history = disk.generatedGossipHistory.flat();
+  assert.equal(history.includes('seed history line'), true);
+  assert.equal(history.includes('spoken history line'), true);
+  assert.equal(history.includes('follow history line'), true);
+});
+
+test('a later empty load does not overwrite a board another process already wrote', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-'));
+  const filePath = path.join(dir, 'state.json');
+  const [wrote, loaded] = await Promise.all([
+    runGossipAction('mutate-append', {
+      STATE_PATH: filePath,
+      DELAY_MS: '250',
+      TIDBIT_ID: 'kept',
+      TIDBIT_TEXT: 'kept rumor',
+    }),
+    runGossipAction('load', { STATE_PATH: filePath }),
+  ]);
+  assert.equal(wrote.status, 0, wrote.stderr);
+  assert.equal(loaded.status, 0, loaded.stderr);
+  assert.equal(JSON.parse(await readFile(filePath, 'utf8')).tidbits[0].id, 'kept');
+  const later = await runGossipAction('load', { STATE_PATH: filePath });
+  assert.equal(later.status, 0, later.stderr);
+  const after = JSON.parse(await readFile(filePath, 'utf8'));
+  assert.equal(after.tidbits.length, 1);
+  assert.equal(after.tidbits[0].id, 'kept');
+  assert.deepEqual(after.generatedGossipHistory, []);
+  assert.deepEqual(after.gossipComments, []);
+});
+
+test('a mutate that cannot obtain the exclusive lock leaves the committed bytes unchanged', async () => {
+  const { store, filePath } = await tempStore({
+    tidbits: [tidbit({ id: 'kept', text: 'kept rumor' })],
+  });
+  const before = await readFile(filePath, 'utf8');
+  const release = await acquireMutationLock(filePath);
+  try {
+    let ran = false;
+    await assert.rejects(store.mutate(() => {
+      ran = true;
+    }), (err) => {
+      assert.equal(err.message.includes(filePath), true);
+      assert.match(err.message, /could not be locked for an exclusive update/);
+      return true;
+    });
+    assert.equal(ran, false);
+    assert.equal(await readFile(filePath, 'utf8'), before);
+  } finally {
+    release();
+  }
+});
+
+test('server ownership does not block an incremental mutate', async () => {
+  const { store, filePath, read } = await tempStore();
+  await acquireServerOwnership(filePath);
+  await store.mutate((state) => {
+    state.tidbits.push(tidbit({ id: 'while-serving', text: 'committed while serve owns the workspace' }));
+  });
+  const disk = await read();
+  assert.equal(disk.tidbits[0].id, 'while-serving');
 });

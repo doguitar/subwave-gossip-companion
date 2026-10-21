@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,8 @@ import { RUMOR_REGISTERS } from '../src/register.js';
 import { rumorTargetSetKey } from '../src/roles.js';
 import { seedUserPrompt } from '../src/llm.js';
 import { refreshGossip, seedGossip } from '../src/seed.js';
-import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
+import { appendGeneratedGossipHistory, recordGossipComment, recordTidbitTelling } from '../src/store.js';
+import { PERSONA_A, PERSONA_B, PERSONA_C, runGossipAction, stubAdapter, tempStore, tidbit } from './helpers.js';
 
 const hallway = {
   teller: PERSONA_A,
@@ -1204,4 +1206,188 @@ test('queued validation failure and abort release later gossip generation', asyn
   await assert.rejects(aborted, { name: 'AbortError' });
   const result = await later;
   assert.equal(result.seeded, 1);
+});
+
+test('two seed processes append both tidbits while generation overlaps', async () => {
+  const { filePath, read } = await tempStore();
+  const barrier = await mkdtemp(path.join(tmpdir(), 'gossip-barrier-'));
+  const rumorA = 'word is Gamma hid a cart behind the legal ID again';
+  const rumorB = 'word is Gamma taped a spare cart over the legal ID';
+  const [first, second] = await Promise.all([
+    runGossipAction('seed', {
+      STATE_PATH: filePath,
+      RUMOR: rumorA,
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'a',
+      BARRIER_PEERS: 'a,b',
+    }),
+    runGossipAction('seed', {
+      STATE_PATH: filePath,
+      RUMOR: rumorB,
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'b',
+      BARRIER_PEERS: 'a,b',
+    }),
+  ]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  const disk = await read();
+  const texts = disk.tidbits.map((item) => item.text).join('\n');
+  assert.equal(texts.includes(rumorA), true);
+  assert.equal(texts.includes(rumorB), true);
+  assert.equal(disk.tidbits.length, 2);
+});
+
+test('refresh does not commit over a board replaced during generation', async () => {
+  const { store, filePath, read } = await tempStore({
+    tidbits: [tidbit({ id: 'baseline', text: 'baseline rumor', hearerPersonaIds: null })],
+    generatedGossipHistory: [['prior generated line']],
+  });
+  await assert.rejects(() => refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async () => {
+      await store.mutate((state) => {
+        state.tidbits = [tidbit({ id: 'other-refresh', text: 'already committed refresh', hearerPersonaIds: null })];
+        appendGeneratedGossipHistory(state, ['other refresh history'], 7);
+      });
+      return { rumor: 'unconfirmed the late refresh must not land tonight' };
+    },
+    log: { info() {}, warn() {} },
+  }), (err) => {
+    assert.equal(err.status, 409);
+    assert.match(err.message, /another refresh already committed/);
+    assert.equal(err.message.includes(filePath), true);
+    return true;
+  });
+  const disk = await read();
+  assert.equal(disk.tidbits.length, 1);
+  assert.equal(disk.tidbits[0].id, 'other-refresh');
+  assert.equal(disk.generatedGossipHistory.flat().includes('other refresh history'), true);
+  assert.equal(disk.generatedGossipHistory.flat().some((line) => line.includes('late refresh')), false);
+});
+
+test('refresh commit keeps incremental history written during generation', async () => {
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({ id: 'baseline', text: 'baseline rumor', hearerPersonaIds: null })],
+    generatedGossipHistory: [['prior generated line']],
+  });
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    generate: async () => {
+      await store.mutate((state) => {
+        state.tidbits.push(tidbit({
+          id: 'during',
+          text: 'appended during generation',
+          hearerPersonaIds: null,
+          toldAt: ['2026-09-19T05:00:00.000Z'],
+        }));
+        appendGeneratedGossipHistory(state, ['incremental history beside refresh'], 7);
+        recordGossipComment(state, {
+          id: 'during-comment',
+          tidbitId: 'during',
+          actorPersonaId: PERSONA_A.id,
+          commentedAt: '2026-09-19T05:00:00.000Z',
+        });
+        recordTidbitTelling(state, 'during', '2026-09-19T05:00:00.000Z');
+      });
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 1);
+  const disk = await read();
+  assert.equal(disk.tidbits.some((item) => item.id === 'during'), false);
+  assert.equal(disk.tidbits.some((item) => item.id === 'baseline'), false);
+  assert.equal(disk.gossipComments.some((item) => item.id === 'during-comment'), false);
+  const history = disk.generatedGossipHistory.flat();
+  assert.equal(history.includes('prior generated line'), true);
+  assert.equal(history.includes('incremental history beside refresh'), true);
+  assert.equal(history.some((line) => line.includes('booth kettle')), true);
+});
+
+test('a second refresh does not commit over a refresh that already committed', async () => {
+  const { filePath, read } = await tempStore({
+    tidbits: [tidbit({ id: 'baseline', text: 'baseline rumor', hearerPersonaIds: null })],
+    generatedGossipHistory: [['prior generated line']],
+  });
+  const barrier = await mkdtemp(path.join(tmpdir(), 'gossip-barrier-'));
+  const late = 'unconfirmed the late refresh must not land tonight';
+  const early = 'unconfirmed the booth kettle whistled through the legal ID';
+  const [slow, fast] = await Promise.all([
+    runGossipAction('refresh', {
+      STATE_PATH: filePath,
+      RUMOR: late,
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'slow',
+      BARRIER_PEERS: 'slow,fast',
+      DELAY_MS: '700',
+    }),
+    runGossipAction('refresh', {
+      STATE_PATH: filePath,
+      RUMOR: early,
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'fast',
+      BARRIER_PEERS: 'slow,fast',
+    }),
+  ]);
+  assert.equal(fast.status, 0, fast.stderr);
+  assert.equal(slow.status, 1);
+  assert.equal(slow.stderr.includes(filePath), true);
+  assert.match(slow.stderr, /another refresh already committed/);
+  const disk = await read();
+  assert.equal(disk.tidbits.length, 1);
+  assert.equal(disk.tidbits[0].text.includes(early), true);
+  assert.equal(disk.tidbits[0].text.includes(late), false);
+  assert.equal(disk.generatedGossipHistory.flat().includes('prior generated line'), true);
+  assert.equal(disk.generatedGossipHistory.flat().some((line) => line.includes(late)), false);
+});
+
+test('refresh keeps an incremental commit made during generation in another process', async () => {
+  const { filePath, read } = await tempStore({
+    tidbits: [tidbit({ id: 'baseline', text: 'baseline rumor', hearerPersonaIds: null })],
+    generatedGossipHistory: [['prior generated line']],
+  });
+  const barrier = await mkdtemp(path.join(tmpdir(), 'gossip-barrier-'));
+  const marker = 'incremental history beside refresh';
+  const refresh = runGossipAction('refresh', {
+    STATE_PATH: filePath,
+    RUMOR: 'unconfirmed the booth kettle whistled through the legal ID',
+    BARRIER_DIR: barrier,
+    BARRIER_NAME: 'refresh',
+    BARRIER_PEERS: 'refresh',
+    WAIT_FOR_TEXT: marker,
+  });
+  const ready = path.join(barrier, 'refresh');
+  const deadline = Date.now() + 8000;
+  while (!existsSync(ready)) {
+    if (Date.now() > deadline) throw new Error('refresh did not reach generation');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const wrote = await runGossipAction('mutate-append', {
+    STATE_PATH: filePath,
+    TIDBIT_ID: 'during',
+    TIDBIT_TEXT: 'appended during generation',
+    HISTORY_LINE: marker,
+    COMMENT_ID: 'during-comment',
+    TOLD_AT: '2026-09-19T05:00:00.000Z',
+  });
+  const committed = await refresh;
+  assert.equal(wrote.status, 0, wrote.stderr);
+  assert.equal(committed.status, 0, committed.stderr);
+  const disk = await read();
+  assert.equal(disk.tidbits.some((item) => item.id === 'during'), false);
+  const history = disk.generatedGossipHistory.flat();
+  assert.equal(history.includes('prior generated line'), true);
+  assert.equal(history.includes(marker), true);
+  assert.equal(history.some((line) => line.includes('booth kettle')), true);
 });

@@ -412,6 +412,7 @@ async function refreshGossipOperation({
   const requireComplete = !pickRoles;
   const maxLinks = strictCap || !requireComplete ? cap : Math.max(1, roster.length * 3);
   await store.reload();
+  const baselineIds = currentTidbits(store.snapshot()).map((tidbit) => tidbit.id);
   const penalties = recentSelectionPenalty(currentTidbits(store.snapshot()));
   const retainedHistory = historyGenerations > 0
     ? generatedGossipHistory(store.snapshot()).flat()
@@ -497,9 +498,19 @@ async function refreshGossipOperation({
   }
   throwIfAborted(signal);
   await store.mutate((state) => {
-    state.tidbits = finalTidbits;
-    appendGeneratedGossipHistory(state, finalTidbits.map((t) => t.text), historyGenerations);
-    state.gossipComments = pruneGossipCommentsToTidbits(finalTidbits, state.gossipComments);
+    const committedIds = new Set(currentTidbits(state).map((tidbit) => tidbit.id));
+    if (baselineIds.some((id) => !committedIds.has(id))) {
+      throw Object.assign(new Error(`another refresh already committed ${store.configuredPath()}`), { status: 409 });
+    }
+    const latestById = new Map(currentTidbits(state).map((tidbit) => [tidbit.id, tidbit]));
+    state.tidbits = finalTidbits.map((tidbit) => {
+      const latest = latestById.get(tidbit.id);
+      if (!latest?.toldAt?.length) return tidbit;
+      const toldAt = [...new Set([...(tidbit.toldAt || []), ...latest.toldAt])].sort();
+      return { ...tidbit, toldAt };
+    });
+    appendGeneratedGossipHistory(state, state.tidbits.map((tidbit) => tidbit.text), historyGenerations);
+    state.gossipComments = pruneGossipCommentsToTidbits(state.tidbits, state.gossipComments);
   });
   log.info?.(`[gossip] lifecycle ${JSON.stringify({ version: 1, lifecycleId, kind: 'refresh', stage: 'complete', elapsedMs: Date.now() - startedAt, refreshed: finalTidbits.length, rejected: rejected.length, review })}`);
   return { refreshed: finalTidbits.length, rejected: rejected.length, day, tidbits: finalTidbits, review };

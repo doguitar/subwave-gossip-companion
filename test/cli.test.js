@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import net from 'node:net';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { refreshCountOption, generateOptions, applyCliOptions } from '../src/cli.js';
+import { acquireMutationLock } from '../src/workspaceLock.js';
 import { applyDotEnv, loadConfig } from '../src/config.js';
 import { fileURLToPath } from 'node:url';
 
@@ -112,44 +114,7 @@ async function spawnWithCorruptState(command) {
     cwd: repo,
     encoding: 'utf8',
     timeout: 8000,
-    env: {
-      ...process.env,
-      GOSSIP_BASE_DIR: root,
-      GOSSIP_STATE_PATH: statePath,
-      GOSSIP_TYPES_PATH: path.join(repo, 'gossip-types.json'),
-      GOSSIP_OPERATIONAL_LOG: path.join(root, 'logs', 'gossip.log'),
-      GOSSIP_LLM_CALL_LOG: '',
-      GOSSIP_LLM_LOG_CONTENT: 'off',
-      GOSSIP_LLM_FIXTURE: '',
-      GOSSIP_REFRESH_SECRET: 'operator-secret',
-      GOSSIP_REFRESH_COUNT: '1',
-      GOSSIP_REFRESH_MAX_CONCURRENCY: '1',
-      GOSSIP_REFRESH_MIN_INTERVAL_MS: '0',
-      GOSSIP_REFRESH_BODY_MAX_BYTES: '16384',
-      GOSSIP_HEADERS_TIMEOUT_MS: '10000',
-      GOSSIP_REQUEST_TIMEOUT_MS: '30000',
-      GOSSIP_SEED_CAP: '5',
-      GOSSIP_HISTORY_GENERATIONS: '7',
-      GOSSIP_REVIEW_ROUNDS: '0',
-      GOSSIP_THREAD_MAX_TELLINGS: '3',
-      GOSSIP_THREAD_MAX_AGE_MS: '86400000',
-      GOSSIP_PORT: '18787',
-      SUBWAVE_API_URL: 'https://station.example/api',
-      SUBWAVE_API_TOKEN: 'token',
-      SUBWAVE_API_USER: '',
-      SUBWAVE_API_PASSWORD: '',
-      PROVIDER: 'openai',
-      PROVIDER_KEY: '',
-      PROVIDER_MODEL: 'gpt-4o-mini',
-      PROVIDER_THINKING: '',
-      GOSSIP_LLM_API_KEY: '',
-      GOSSIP_LLM_THINKING: '',
-      GOSSIP_LLM_URL: '',
-      OPENAI_API_KEY: '',
-      ANTHROPIC_API_KEY: '',
-      GOOGLE_API_KEY: '',
-      OPENAI_BASE_URL: 'https://api.openai.com/v1',
-    },
+    env: companionEnv(root, statePath, 18787),
   });
   return { result, statePath, corrupt, after: await readFile(statePath, 'utf8') };
 }
@@ -175,4 +140,174 @@ test('provider commands exit with the state-file error when preflight would also
 
 test('ingest-spoken exits without rewriting a corrupt state file', async () => {
   assertCorruptStateFailure(await spawnWithCorruptState('ingest-spoken'));
+});
+
+function companionEnv(root, statePath, port) {
+  return {
+    ...process.env,
+    GOSSIP_BASE_DIR: root,
+    GOSSIP_STATE_PATH: statePath,
+    GOSSIP_TYPES_PATH: path.join(repo, 'gossip-types.json'),
+    GOSSIP_OPERATIONAL_LOG: path.join(root, 'logs', 'gossip.log'),
+    GOSSIP_LLM_CALL_LOG: '',
+    GOSSIP_LLM_LOG_CONTENT: 'off',
+    GOSSIP_LLM_FIXTURE: '',
+    GOSSIP_REFRESH_SECRET: 'operator-secret',
+    GOSSIP_REFRESH_COUNT: '1',
+    GOSSIP_REFRESH_MAX_CONCURRENCY: '1',
+    GOSSIP_REFRESH_MIN_INTERVAL_MS: '0',
+    GOSSIP_REFRESH_BODY_MAX_BYTES: '16384',
+    GOSSIP_HEADERS_TIMEOUT_MS: '10000',
+    GOSSIP_REQUEST_TIMEOUT_MS: '30000',
+    GOSSIP_SEED_CAP: '5',
+    GOSSIP_HISTORY_GENERATIONS: '7',
+    GOSSIP_REVIEW_ROUNDS: '0',
+    GOSSIP_THREAD_MAX_TELLINGS: '3',
+    GOSSIP_THREAD_MAX_AGE_MS: '86400000',
+    GOSSIP_HOST: '127.0.0.1',
+    GOSSIP_PORT: String(port),
+    SUBWAVE_API_URL: 'http://127.0.0.1:9',
+    SUBWAVE_API_TOKEN: 'token',
+    SUBWAVE_API_USER: '',
+    SUBWAVE_API_PASSWORD: '',
+    PROVIDER: 'openai',
+    PROVIDER_KEY: '',
+    PROVIDER_MODEL: 'gpt-4o-mini',
+    PROVIDER_THINKING: '',
+    GOSSIP_LLM_API_KEY: '',
+    GOSSIP_LLM_THINKING: '',
+    GOSSIP_LLM_URL: '',
+    OPENAI_API_KEY: '',
+    ANTHROPIC_API_KEY: '',
+    GOOGLE_API_KEY: '',
+    OPENAI_BASE_URL: 'https://api.openai.com/v1',
+  };
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function spawnServe(root, statePath, port) {
+  const child = spawn(process.execPath, ['src/cli.js', 'serve', '--base-dir', root], {
+    cwd: repo,
+    env: companionEnv(root, statePath, port),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.output = '';
+  child.stdout.on('data', (chunk) => { child.output += chunk; });
+  child.stderr.on('data', (chunk) => { child.output += chunk; });
+  return child;
+}
+
+function waitForOutput(child, pattern, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    if (pattern.test(child.output)) {
+      resolve(child.output);
+      return;
+    }
+    const timer = setTimeout(() => {
+      finish(new Error(`timed out waiting for ${pattern}: ${child.output}`));
+    }, timeoutMs);
+    const onExit = (code) => finish(new Error(`exited ${code} before ${pattern}: ${child.output}`));
+    const onData = () => {
+      if (pattern.test(child.output)) finish();
+    };
+    const finish = (err) => {
+      clearTimeout(timer);
+      child.stdout.off('data', onData);
+      child.stderr.off('data', onData);
+      child.off('exit', onExit);
+      if (err) reject(err);
+      else resolve(child.output);
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.on('exit', onExit);
+  });
+}
+
+function stopped(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => child.once('exit', () => resolve()));
+}
+
+test('a second serve on the same state file exits before listening and a replacement can start', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gossip-serve-'));
+  const statePath = path.join(root, 'data', 'gossip-state.json');
+  await mkdir(path.dirname(statePath), { recursive: true });
+  const initial = `${JSON.stringify({ tidbits: [], generatedGossipHistory: [], gossipComments: [] })}\n`;
+  await writeFile(statePath, initial);
+  const firstPort = await freePort();
+  const first = spawnServe(root, statePath, firstPort);
+  let replacement;
+  try {
+    await waitForOutput(first, /listening/);
+    const secondPort = await freePort();
+    const second = spawnSync(process.execPath, ['src/cli.js', 'serve', '--base-dir', root], {
+      cwd: repo,
+      encoding: 'utf8',
+      timeout: 8000,
+      env: companionEnv(root, statePath, secondPort),
+    });
+    const secondOutput = `${second.stdout}\n${second.stderr}`;
+    assert.equal(second.status, 1);
+    assert.equal(second.stderr.includes(statePath), true);
+    assert.match(second.stderr, /another server already owns the workspace/);
+    assert.doesNotMatch(secondOutput, /listening/);
+    assert.equal(await readFile(statePath, 'utf8'), initial);
+    assert.equal(first.exitCode, null);
+    const health = await fetch(`http://127.0.0.1:${firstPort}/health`);
+    assert.equal(health.status, 200);
+    assert.equal(await health.text(), 'ok\n');
+    first.kill('SIGKILL');
+    await stopped(first);
+    const nextPort = await freePort();
+    replacement = spawnServe(root, statePath, nextPort);
+    await waitForOutput(replacement, /listening/);
+    assert.equal(await readFile(statePath, 'utf8'), initial);
+    const again = await fetch(`http://127.0.0.1:${nextPort}/health`);
+    assert.equal(again.status, 200);
+  } finally {
+    first.kill('SIGKILL');
+    replacement?.kill('SIGKILL');
+    await stopped(first);
+    if (replacement) await stopped(replacement);
+  }
+});
+
+test('ingest-spoken exits non-zero and leaves the state file unchanged when the update lock is held', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gossip-lock-'));
+  const statePath = path.join(root, 'data', 'gossip-state.json');
+  await mkdir(path.dirname(statePath), { recursive: true });
+  const initial = `${JSON.stringify({
+    tidbits: [{ id: 'kept', text: 'kept rumor', createdAt: '2026-09-19T00:00:00.000Z', tellerPersonaId: 'p_a', hearerPersonaIds: [] }],
+    generatedGossipHistory: [],
+    gossipComments: [],
+  })}\n`;
+  await writeFile(statePath, initial);
+  const release = await acquireMutationLock(statePath);
+  try {
+    const result = spawnSync(process.execPath, ['src/cli.js', 'ingest-spoken', '--base-dir', root], {
+      cwd: repo,
+      encoding: 'utf8',
+      timeout: 15000,
+      env: companionEnv(root, statePath, 18787),
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr.includes(statePath), true);
+    assert.match(result.stderr, /could not be locked for an exclusive update/);
+    assert.equal(await readFile(statePath, 'utf8'), initial);
+  } finally {
+    release();
+  }
 });
