@@ -20,6 +20,9 @@ PROVIDER_THINKING=
 GOSSIP_REFRESH_SECRET=use-a-long-random-operator-secret
 GOSSIP_REFRESH_MAX_CONCURRENCY=1
 GOSSIP_REFRESH_MIN_INTERVAL_MS=60000
+GOSSIP_REFRESH_BODY_MAX_BYTES=16384
+GOSSIP_HEADERS_TIMEOUT_MS=10000
+GOSSIP_REQUEST_TIMEOUT_MS=30000
 GOSSIP_REVIEW_ROUNDS=0
 GOSSIP_THREAD_MAX_TELLINGS=3
 GOSSIP_THREAD_MAX_AGE_MS=86400000
@@ -32,6 +35,8 @@ GOSSIP_THREAD_MAX_AGE_MS=86400000
 `GOSSIP_REFRESH_COUNT` (default `1`, range `1`–`10`) is the default maximum number of accepted tidbits for one refresh. `node src/cli.js refresh [count]` accepts the same range as a one-run override, and `POST /gossip/refresh` accepts it as JSON `{ "count": 1 }` or a `count` query parameter. Explicit invalid counts are rejected. A low count may return a successful roster-incomplete board; `refreshed` and `tidbits` always report only the accepted tidbits and never exceed the requested count.
 
 `GOSSIP_REFRESH_SECRET` is required and is a dedicated operator credential for the HTTP refresh endpoints; it never falls back to Subwave or LLM credentials. Send it as `Authorization: Bearer <secret>`. `GOSSIP_REFRESH_MAX_CONCURRENCY` (default `1`, range `1`–`10`) bounds simultaneous admitted refreshes, and `GOSSIP_REFRESH_MIN_INTERVAL_MS` (default `60000`, range `0`–`3600000`) limits how frequently one process admits them. Rejected unauthenticated requests do not read a body or reload/generate gossip; requests exceeding either admission limit receive `429`.
+
+`GOSSIP_REFRESH_BODY_MAX_BYTES` (default `16384`, range `1`–`1048576`) limits the JSON body accepted by `POST /refresh` and `POST /gossip/refresh`. Bodies whose declared `Content-Length` or streamed bytes exceed the limit receive `413 Payload Too Large` before gossip reload or generation begins. `GOSSIP_HEADERS_TIMEOUT_MS` (default `10000`, range `1000`–`300000`) limits header delivery, and `GOSSIP_REQUEST_TIMEOUT_MS` (default `30000`, range `1000`–`300000`) limits the complete HTTP request, including its body; both values are milliseconds.
 
 `GOSSIP_THREAD_MAX_TELLINGS` (default `3`, range `1`–`100`) and `GOSSIP_THREAD_MAX_AGE_MS` (default `86400000`) retire a thread from RSS selection after its attributed on-air telling count or age reaches the configured limit. RSS item shape remains unchanged.
 

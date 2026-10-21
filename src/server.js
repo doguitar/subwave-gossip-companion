@@ -6,11 +6,69 @@ import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
 import { generateReview, generateSeed, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
-async function readJsonBody(req) {
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super('request body exceeds configured limit');
+    this.status = 413;
+  }
+}
+
+class RequestBodyTimeoutError extends Error {
+  constructor() {
+    super('request body timed out');
+    this.status = 408;
+  }
+}
+
+function readJsonBody(req, maxBytes, timeoutMs) {
+  const contentLength = req.headers['content-length'];
+  if (typeof contentLength === 'string' && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
+    return Promise.reject(new PayloadTooLargeError());
+  }
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  let bytes = 0;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => fail(new RequestBodyTimeoutError()), timeoutMs);
+    const finish = () => {
+      cleanup();
+      if (!chunks.length) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    const fail = (err) => {
+      cleanup();
+      reject(err);
+    };
+    const onData = (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        cleanup();
+        req.resume();
+        reject(new PayloadTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onAborted = () => fail(new Error('request aborted'));
+    const cleanup = () => {
+      clearTimeout(timer);
+      req.off('data', onData);
+      req.off('end', finish);
+      req.off('error', fail);
+      req.off('aborted', onAborted);
+    };
+    req.on('data', onData);
+    req.once('end', finish);
+    req.once('error', fail);
+    req.once('aborted', onAborted);
+  });
 }
 
 function escapeHtml(value) {
@@ -65,7 +123,7 @@ export function createServer({
     || ((rules) => summarizeHouseRules({ config, houseRules: rules, log }));
   let activeRefreshes = 0;
   let lastRefreshAdmissionAt = -Infinity;
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', `http://${req.headers.host || `${config.host}:${config.port}`}`);
       const remote = req.socket?.remoteAddress || '-';
@@ -104,8 +162,29 @@ export function createServer({
         try {
           let body = {};
           try {
-            body = await readJsonBody(req);
-          } catch {
+            body = await readJsonBody(
+              req,
+              config.refreshBodyMaxBytes ?? 16 * 1024,
+              config.requestTimeoutMs ?? 30_000,
+            );
+          } catch (err) {
+            if (err instanceof PayloadTooLargeError) {
+              res.writeHead(413, {
+                'Content-Type': 'application/json; charset=utf-8',
+                Connection: 'close',
+              });
+              res.end(JSON.stringify({ error: 'request body too large' }));
+              return;
+            }
+            if (err instanceof RequestBodyTimeoutError) {
+              res.once('finish', () => req.destroy());
+              res.writeHead(408, {
+                'Content-Type': 'application/json; charset=utf-8',
+                Connection: 'close',
+              });
+              res.end(JSON.stringify({ error: 'request body timed out' }));
+              return;
+            }
             res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: 'invalid JSON body' }));
             return;
@@ -209,6 +288,9 @@ export function createServer({
       res.end(JSON.stringify({ error: err.message, rejected: err.rejected || undefined }));
     }
   });
+  server.headersTimeout = config.headersTimeoutMs ?? 10_000;
+  server.requestTimeout = config.requestTimeoutMs ?? 30_000;
+  return server;
 }
 
 export function listen(server, config, log = console) {

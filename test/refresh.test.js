@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
+import net from 'node:net';
 import { createServer } from '../src/server.js';
 import { parseRssItems } from '../src/rss.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
 
 const servers = [];
 
-async function start(store, adapter, generate, pickRoles) {
+async function start(store, adapter, generate, pickRoles, configOverrides = {}) {
   const config = {
     host: '127.0.0.1',
     port: 0,
@@ -19,6 +20,10 @@ async function start(store, adapter, generate, pickRoles) {
     refreshSecret: 'test-secret',
     refreshMaxConcurrency: 1,
     refreshMinIntervalMs: 0,
+    refreshBodyMaxBytes: 16 * 1024,
+    headersTimeoutMs: 10_000,
+    requestTimeoutMs: 30_000,
+    ...configOverrides,
   };
   const server = createServer({
     store,
@@ -58,6 +63,109 @@ test('refresh aliases reject unauthorized bodies before reload or generation', a
     });
     assert.equal(res.status, 401);
     assert.deepEqual(await res.json(), { error: 'unauthorized' });
+    assert.equal(reloads, 0);
+    assert.equal(generations, 0);
+  }
+});
+
+test('refresh aliases bound declared and streamed JSON bodies before reload or generation', async () => {
+  for (const path of ['/refresh', '/gossip/refresh']) {
+    let reloads = 0;
+    let generations = 0;
+    const { store } = await tempStore();
+    const originalReload = store.reload.bind(store);
+    store.reload = async () => { reloads += 1; await originalReload(); };
+    const base = await start(
+      store,
+      stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      async () => {
+        generations += 1;
+        return { rumor: 'unconfirmed Gamma moved a kettle through the green room' };
+      },
+      () => ({ teller: PERSONA_A, hearers: [PERSONA_B], targets: [PERSONA_C] }),
+      { refreshBodyMaxBytes: 32 },
+    );
+    const headers = {
+      Authorization: 'Bearer test-secret',
+      'Content-Type': 'application/json',
+    };
+    const exactLimitBody = `{"padding":"${'x'.repeat(18)}"}`;
+    assert.equal(Buffer.byteLength(exactLimitBody), 32);
+    const exactLimit = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers,
+      body: exactLimitBody,
+    });
+    assert.equal(exactLimit.status, 200);
+    const admittedReloads = reloads;
+    const admittedGenerations = generations;
+    const oversized = `{"padding":"${'x'.repeat(19)}"}`;
+    const declared = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Length': String(Buffer.byteLength(oversized)) },
+      body: oversized,
+    });
+    assert.equal(declared.status, 413);
+    assert.equal(reloads, admittedReloads);
+    assert.equal(generations, admittedGenerations);
+    const chunked = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers,
+      duplex: 'half',
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(oversized.slice(0, 16)));
+          controller.enqueue(new TextEncoder().encode(oversized.slice(16)));
+          controller.close();
+        },
+      }),
+    });
+    assert.equal(chunked.status, 413);
+    assert.equal(reloads, admittedReloads);
+    assert.equal(generations, admittedGenerations);
+  }
+});
+
+test('refresh request deadline ends slow alias bodies before reload or generation', async () => {
+  for (const path of ['/refresh', '/gossip/refresh']) {
+    let reloads = 0;
+    let generations = 0;
+    const { store } = await tempStore();
+    const originalReload = store.reload.bind(store);
+    store.reload = async () => { reloads += 1; await originalReload(); };
+    await start(
+      store,
+      stubAdapter({ personas: [PERSONA_A] }),
+      async () => {
+        generations += 1;
+        return { rumor: 'unused' };
+      },
+      undefined,
+      { requestTimeoutMs: 1_000 },
+    );
+    const server = servers.at(-1);
+    const response = await new Promise((resolve, reject) => {
+      const socket = net.connect(server.address().port, '127.0.0.1');
+      let received = '';
+      socket.setEncoding('utf8');
+      socket.setTimeout(3_000, () => {
+        socket.destroy();
+        reject(new Error('server did not time out slow refresh body'));
+      });
+      socket.on('connect', () => {
+        socket.write(
+          `POST ${path} HTTP/1.1\r\n`
+          + 'Host: 127.0.0.1\r\n'
+          + 'Authorization: Bearer test-secret\r\n'
+          + 'Content-Type: application/json\r\n'
+          + 'Content-Length: 2\r\n\r\n{',
+        );
+      });
+      socket.on('data', (chunk) => { received += chunk; });
+      socket.on('end', () => resolve(received));
+      socket.on('error', reject);
+    });
+    assert.match(response, /^HTTP\/1\.1 408 /);
     assert.equal(reloads, 0);
     assert.equal(generations, 0);
   }
