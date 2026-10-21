@@ -299,7 +299,9 @@ test('default refresh chains until every persona participates', async () => {
 });
 
 test('default refresh fails when rumor targets never cover the roster', async () => {
-  const { store } = await tempStore();
+  const stale = tidbit({ text: 'stale board survives 502', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const before = await read();
   await assert.rejects(
     () => refreshGossip({
       store,
@@ -312,6 +314,8 @@ test('default refresh fails when rumor targets never cover the roster', async ()
     }),
     (err) => err.status === 502 && err.targetCovered === 0 && err.roster === 1 && err.targetIncomplete === true,
   );
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
 });
 
 test('refresh respects targetCount on rumor registers', async () => {
@@ -383,7 +387,7 @@ test('seed prompts with generated history only and appends a new batch', async (
   assert.ok(state.tidbits.some((t) => t.text === wrapped));
 });
 
-test('refresh clears tidbits but preserves history until the new batch appends', async () => {
+test('refresh keeps stale board on disk during generation and commits only on success', async () => {
   const priorGenerated = 'Beta told Alpha, "unconfirmed Gamma coughed a cart that was only static"';
   const { store, read } = await tempStore({
     tidbits: [tidbit({ text: 'stale board item', hearerPersonaIds: null })],
@@ -399,6 +403,9 @@ test('refresh clears tidbits but preserves history until the new batch appends',
     timezone: 'UTC',
     generate: async ({ existing }) => {
       seenExisting.push([...existing]);
+      const mid = await read();
+      assert.ok(mid.tidbits.some((t) => t.text === 'stale board item'));
+      assert.ok(!existing.some((line) => line.includes('stale board item')));
       return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
     },
     log: { info() {}, warn() {} },
@@ -444,12 +451,16 @@ test('successful refresh prunes gossip comments that reference removed tidbits',
 });
 
 test('failed refresh leaves gossip comments unchanged', async () => {
+  const stale = tidbit({ id: 'old', text: 'old news', hearerPersonaIds: null });
+  const priorHistory = [['Beta told Alpha, "prior generated line"']];
   const { store, read } = await tempStore({
-    tidbits: [tidbit({ id: 'old', text: 'old news', hearerPersonaIds: null })],
+    tidbits: [stale],
+    generatedGossipHistory: priorHistory,
     gossipComments: [
       { id: 'keep-me', tidbitId: 'old', actorPersonaId: 'p_a', commentedAt: '2026-09-19T00:00:00.000Z' },
     ],
   });
+  const before = await read();
   await assert.rejects(
     () => refreshGossip({
       store,
@@ -467,6 +478,110 @@ test('failed refresh leaves gossip comments unchanged', async () => {
   assert.equal(state.gossipComments.length, 1);
   assert.equal(state.gossipComments[0].id, 'keep-me');
   assert.equal(state.gossipComments[0].tidbitId, 'old');
+  assert.deepEqual(state.tidbits, before.tidbits);
+  assert.deepEqual(state.generatedGossipHistory, before.generatedGossipHistory);
+});
+
+test('failed refresh preserves board when generation throws on first call', async () => {
+  const stale = tidbit({ text: 'board before throw', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const before = await read();
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => onAir,
+      generate: async () => {
+        throw new Error('fetch failed');
+      },
+      cap: 1,
+      historyGenerations: 7,
+      timezone: 'UTC',
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.message === 'fetch failed',
+  );
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
+});
+
+test('failed refresh preserves board when generation throws mid-batch', async () => {
+  const stale = tidbit({ text: 'board before mid throw', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const before = await read();
+  let calls = 0;
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => hallway,
+      generate: async () => {
+        calls += 1;
+        if (calls === 2) throw new Error('fetch failed');
+        return { rumor: 'unconfirmed Gamma hid a cart behind the legal ID twice' };
+      },
+      cap: 2,
+      historyGenerations: 7,
+      timezone: 'UTC',
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.message === 'fetch failed',
+  );
+  assert.equal(calls, 2);
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
+});
+
+test('refresh still commits when batch review throws without mutating mid-review', async () => {
+  const stale = tidbit({ text: 'stale before review throw', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    reviewRounds: 1,
+    timezone: 'UTC',
+    generate: async () => ({ rumor: 'unconfirmed the booth kettle whistled through the legal ID' }),
+    generateReview: async () => {
+      throw new Error('review failed');
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 1);
+  const state = await read();
+  assert.ok(!state.tidbits.some((t) => t.text === 'stale before review throw'));
+  assert.equal(
+    state.tidbits[0].text,
+    'Alpha said on air, "unconfirmed the booth kettle whistled through the legal ID"',
+  );
+});
+
+test('failed refresh preserves board when generation throws before default chain completes', async () => {
+  const stale = tidbit({ text: 'board before incomplete default refresh', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const before = await read();
+  let calls = 0;
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      generate: async ({ roles }) => {
+        calls += 1;
+        if (calls >= 2) throw new Error('fetch failed');
+        const targets = roles.targets.map((p) => p.name).join(' ');
+        return { rumor: `unconfirmed station kettle remembers ${targets || 'the cart'} tonight` };
+      },
+      historyGenerations: 7,
+      timezone: 'UTC',
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.message === 'fetch failed',
+  );
+  assert.equal(calls, 2);
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
 });
 
 test('refresh resamples when an accepted rumor would repeat the same target set', async () => {

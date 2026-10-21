@@ -20,6 +20,8 @@ async function start(store, adapter, generate, pickRoles) {
     config,
     generate,
     pickRoles,
+    summarizeSouls: async (roster) => roster,
+    summarizeHouseRules: async (rules) => rules,
     log: { warn() {}, error() {}, info() {} },
     watcher: { afterSkillFetch() {} },
   });
@@ -61,4 +63,33 @@ test('POST /gossip/refresh clears the board and writes one told-shape rumor', as
   const disk = await read();
   assert.equal(disk.tidbits.length, 1);
   assert.equal(disk.tidbits[0].text, body.tidbits[0].text);
+});
+
+test('POST /gossip/refresh returns 502 and leaves prior board and history on disk', async () => {
+  const staleText = 'stale item must survive refresh failure';
+  const priorHistory = [['Beta told Alpha, "prior generated gossip line"']];
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({ text: staleText, hearerPersonaIds: null })],
+    generatedGossipHistory: priorHistory,
+  });
+  const onAirRoles = { teller: PERSONA_A, hearers: [], targets: [] };
+  const base = await start(
+    store,
+    stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    async () => ({ rumor: 'short' }),
+    () => onAirRoles,
+  );
+  const res = await fetch(`${base}/gossip/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ count: 1 }),
+  });
+  assert.equal(res.status, 502);
+  const body = await res.json();
+  assert.match(body.error, /no complete station-wide hallway chain/);
+  assert.ok(Array.isArray(body.rejected));
+  const disk = await read();
+  assert.equal(disk.tidbits.length, 1);
+  assert.equal(disk.tidbits[0].text, staleText);
+  assert.deepEqual(disk.generatedGossipHistory, priorHistory);
 });
