@@ -218,6 +218,21 @@ test('changelog is the operator release note and is linked from upgrade docs', a
   assert.match(checklist, /CHANGELOG\.md/);
 });
 
+test('refresh count docs describe accepted tidbits and omit the attempt budget', async () => {
+  const [readme, reference] = await Promise.all([
+    readArtifact('README.md'),
+    readArtifact('docs/reference.md'),
+  ]);
+  assert.match(
+    readme,
+    /`GOSSIP_REFRESH_COUNT` \(default `1`, range `1`–`10`\) is the default maximum number of accepted tidbits for one refresh\./,
+  );
+  assert.doesNotMatch(readme, /attempt budget/i);
+  assert.doesNotMatch(readme, /count \* 3/);
+  assert.doesNotMatch(reference, /attempt budget/i);
+  assert.doesNotMatch(reference, /count \* 3/);
+});
+
 test('operator README documents corrupt state refusal and manual restore', async () => {
   const readme = await readArtifact('README.md');
   assert.match(readme, /exits non-zero/);

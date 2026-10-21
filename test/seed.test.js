@@ -388,6 +388,305 @@ test('default refresh honors a low cap without expanding for roster coverage', a
   assert.equal(result.tidbits.length, 1);
 });
 
+test('strict refresh returns the requested count after rejected slots', async () => {
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({
+      id: 'old',
+      text: 'stale board item',
+      hearerPersonaIds: null,
+      canonicalAnchors: { props: ['kettle'] },
+    })],
+  });
+  const cap = 2;
+  let registerPicks = 0;
+  let generateCalls = 0;
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    pickRegister: () => {
+      registerPicks += 1;
+      if (registerPicks <= 24) return null;
+      return { id: 'booth', name: 'Booth', guidance: 'g', targetCount: 0 };
+    },
+    cap,
+    strictCap: true,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async () => {
+      generateCalls += 1;
+      if (generateCalls <= 3) return { rumor: 'short' };
+      if (generateCalls === 4) {
+        return {
+          rumor: 'unconfirmed the booth kettle whistled through the legal ID',
+          anchors: { props: ['Kettle'] },
+        };
+      }
+      return { rumor: `unconfirmed the booth cart rattled through legal ID take ${generateCalls}` };
+    },
+    log: { info() {}, warn() {} },
+  });
+  const slots = result.rejected + result.refreshed;
+  assert.equal(result.refreshed, cap);
+  assert.equal(result.tidbits.length, cap);
+  assert.equal(result.rejected, 3);
+  assert.ok(slots > cap);
+  assert.ok(slots <= cap * 3);
+  assert.equal(generateCalls, 6);
+  const state = await read();
+  assert.equal(state.tidbits.length, cap);
+  assert.ok(state.tidbits.every((item) => item.id !== 'old'));
+});
+
+test('strict refresh throws before review when accepted tidbits stay short of the count', async () => {
+  const stale = tidbit({ id: 'old', text: 'stale board item', hearerPersonaIds: null });
+  const comments = [{ id: 'keep-me', tidbitId: 'old', actorPersonaId: 'p_a', commentedAt: '2026-09-18T10:00:00.000Z' }];
+  const { store, read } = await tempStore({ tidbits: [stale], gossipComments: comments });
+  const before = await read();
+  let generateCalls = 0;
+  let reviewCalls = 0;
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => onAir,
+      cap: 2,
+      strictCap: true,
+      reviewRounds: 1,
+      historyGenerations: 0,
+      timezone: 'UTC',
+      generate: async () => {
+        generateCalls += 1;
+        if (generateCalls === 1) return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+        return { rumor: 'short' };
+      },
+      generateReview: async () => {
+        reviewCalls += 1;
+        return { rumors: {} };
+      },
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.status === 502 && err.message === 'LLM produced no complete station-wide hallway chain',
+  );
+  assert.equal(generateCalls, 16);
+  assert.equal(reviewCalls, 0);
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
+  assert.deepEqual(state.gossipComments, before.gossipComments);
+});
+
+test('strict refresh fails without replacing the board when roles run out', async () => {
+  const stale = tidbit({ id: 'old', text: 'stale board item', hearerPersonaIds: null });
+  const comments = [{ id: 'keep-me', tidbitId: 'old', actorPersonaId: 'p_a', commentedAt: '2026-09-18T10:00:00.000Z' }];
+  const { store, read } = await tempStore({ tidbits: [stale], gossipComments: comments });
+  const before = await read();
+  let picks = 0;
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => {
+        picks += 1;
+        return picks === 1 ? onAir : null;
+      },
+      cap: 3,
+      strictCap: true,
+      historyGenerations: 0,
+      timezone: 'UTC',
+      generate: async () => ({ rumor: 'unconfirmed the booth kettle whistled through the legal ID' }),
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.status === 502 && err.message === 'LLM produced no complete station-wide hallway chain',
+  );
+  assert.equal(picks, 2);
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
+  assert.deepEqual(state.gossipComments, before.gossipComments);
+});
+
+test('strict refresh does not stop once roster coverage is complete', async () => {
+  const { store } = await tempStore();
+  let calls = 0;
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B] }),
+    cap: 4,
+    strictCap: true,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async () => {
+      calls += 1;
+      return { rumor: 'unconfirmed Alpha and Beta left the booth kettle on the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 4);
+  assert.equal(result.tidbits.length, 4);
+  assert.equal(calls, 4);
+});
+
+test('strict refresh keeps the count when review rejects a revision', async () => {
+  const { store, read } = await tempStore();
+  let generateCalls = 0;
+  let reviewCalls = 0;
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 2,
+    strictCap: true,
+    reviewRounds: 1,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async () => {
+      generateCalls += 1;
+      return { rumor: `unconfirmed the booth kettle whistled through legal ID take ${generateCalls}` };
+    },
+    generateReview: async ({ tidbits }) => {
+      reviewCalls += 1;
+      return {
+        rumors: {
+          [tidbits[0].id]: 'string',
+          [tidbits[1].id]: 'string',
+        },
+      };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 2);
+  assert.equal(result.tidbits.length, 2);
+  assert.equal(generateCalls, 2);
+  assert.equal(reviewCalls, 1);
+  assert.equal(result.review.rejected, 2);
+  const state = await read();
+  assert.equal(state.tidbits.length, 2);
+  assert.match(state.tidbits[0].text, /legal ID take 1/);
+  assert.match(state.tidbits[1].text, /legal ID take 2/);
+});
+
+test('strict refresh aborts on a provider error instead of counting a rejected slot', async () => {
+  const stale = tidbit({ text: 'board before throw', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const before = await read();
+  let calls = 0;
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => onAir,
+      strictCap: true,
+      cap: 2,
+      historyGenerations: 0,
+      timezone: 'UTC',
+      generate: async () => {
+        calls += 1;
+        if (calls === 1) return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+        throw new Error('fetch failed');
+      },
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.message === 'fetch failed' && err.status !== 502,
+  );
+  assert.equal(calls, 2);
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
+});
+
+test('strict refresh aborts when rate limit retries are exhausted', async () => {
+  const stale = tidbit({ id: 'kept', text: 'board before rate limit', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const before = await read();
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => onAir,
+      strictCap: true,
+      cap: 1,
+      historyGenerations: 0,
+      timezone: 'UTC',
+      sleep: async () => {},
+      generate: async () => {
+        const error = new Error('rate limited');
+        error.status = 429;
+        error.retryAfterMs = 0;
+        throw error;
+      },
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.code === 'RATE_LIMIT' && err.status === 429 && !err.rejected,
+  );
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
+});
+
+test('strict refresh abort is not recorded as a rejected slot', async () => {
+  const stale = tidbit({ text: 'stay', hearerPersonaIds: null });
+  const { store, read } = await tempStore({ tidbits: [stale] });
+  const before = await read();
+  const controller = new AbortController();
+  await assert.rejects(() => refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    signal: controller.signal,
+    pickRoles: () => onAir,
+    strictCap: true,
+    cap: 2,
+    historyGenerations: 0,
+    generate: async () => {
+      controller.abort();
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  }), (err) => err.name === 'AbortError' && err.status !== 502);
+  const state = await read();
+  assert.deepEqual(state.tidbits, before.tidbits);
+});
+
+test('non-strict refresh uses the roster slot ceiling while coverage stays open', async () => {
+  const { store } = await tempStore();
+  let calls = 0;
+  await assert.rejects(
+    () => refreshGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B] }),
+      cap: 1,
+      historyGenerations: 0,
+      timezone: 'UTC',
+      generate: async () => {
+        calls += 1;
+        return { rumor: 'short' };
+      },
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.status === 502,
+  );
+  assert.equal(calls, 18);
+});
+
+test('non-strict custom role picker lets a rejection consume the count', async () => {
+  const { store } = await tempStore();
+  let calls = 0;
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 2,
+    historyGenerations: 0,
+    timezone: 'UTC',
+    generate: async () => {
+      calls += 1;
+      if (calls <= 3) return { rumor: 'short' };
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(calls, 4);
+  assert.equal(result.refreshed, 1);
+  assert.equal(result.rejected, 1);
+  assert.equal(result.tidbits.length, 1);
+});
+
 test('default refresh fails when rumor targets never cover the roster', async () => {
   const stale = tidbit({ text: 'stale board survives 502', hearerPersonaIds: null });
   const { store, read } = await tempStore({ tidbits: [stale] });
