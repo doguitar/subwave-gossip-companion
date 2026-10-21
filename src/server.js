@@ -227,6 +227,7 @@ export function createServer({
         return;
       }
       if (req.method === 'GET' && url.pathname === '/') {
+        await store.reloadIfStale?.();
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(buildTidbitPage(currentTidbits(store.snapshot())));
         return;
@@ -367,12 +368,12 @@ export function createServer({
         }
         return;
       }
-      await store.reload?.();
       if (req.method !== 'GET' || url.pathname !== '/gossip.rss') {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('not found\n');
         return;
       }
+      await store.reloadIfStale?.();
       const show = (url.searchParams.get('show') || '').trim();
       if (!show) {
         res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });

@@ -177,6 +177,9 @@ export async function stateFileReadable(filePath) {
 }
 
 export class GossipStore {
+  #mtimeMs = null;
+  stateReads = 0;
+
   constructor(filePath) {
     this.filePath = filePath;
     this.state = emptyState();
@@ -198,7 +201,18 @@ export class GossipStore {
     }
   }
 
+  async #noteMtime() {
+    try {
+      const info = await stat(this.filePath);
+      this.#mtimeMs = info.mtimeMs;
+    } catch (err) {
+      if (err?.code !== 'ENOENT') throw err;
+      this.#mtimeMs = null;
+    }
+  }
+
   async #readFromDisk({ persistMissing = false } = {}) {
+    this.stateReads += 1;
     let raw;
     try {
       raw = await readFile(this.filePath, 'utf8');
@@ -206,6 +220,7 @@ export class GossipStore {
       if (err && err.code === 'ENOENT') {
         this.state = emptyState();
         if (persistMissing) await this.#persist(this.state);
+        await this.#noteMtime();
         return this.snapshot();
       }
       throw err;
@@ -220,6 +235,7 @@ export class GossipStore {
       throw err;
     }
     this.state = normalizeState(parsed);
+    await this.#noteMtime();
     return this.snapshot();
   }
 
@@ -229,6 +245,19 @@ export class GossipStore {
 
   reload() {
     return this.#enqueue(() => this.#withExclusiveDisk(() => this.#readFromDisk({ persistMissing: true })));
+  }
+
+  reloadIfStale() {
+    return this.#enqueue(() => this.#withExclusiveDisk(async () => {
+      let mtimeMs = null;
+      try {
+        mtimeMs = (await stat(this.filePath)).mtimeMs;
+      } catch (err) {
+        if (err?.code !== 'ENOENT') throw err;
+      }
+      if (this.state && mtimeMs != null && mtimeMs === this.#mtimeMs) return this.snapshot();
+      return this.#readFromDisk({ persistMissing: true });
+    }));
   }
 
   snapshot() {
@@ -246,6 +275,7 @@ export class GossipStore {
       const result = await fn(next);
       this.state = normalizeState(next);
       await this.#persist(this.state);
+      await this.#noteMtime();
       return result;
     }));
   }

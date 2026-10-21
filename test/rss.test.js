@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, utimes, writeFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { createServer } from '../src/server.js';
 import { PERSONA_A, PERSONA_B, stubAdapter, tempStore, tidbit } from './helpers.js';
@@ -17,6 +17,39 @@ async function start(store, adapter, feedBaseUrl = '') {
 
 after(() => {
   for (const s of servers) s.close();
+});
+
+test('repeated RSS polls skip an unchanged state file and still see external and local edits', async () => {
+  const { store, filePath, read } = await tempStore({
+    tidbits: [tidbit({ text: 'A only', tellerPersonaId: PERSONA_A.id, hearerPersonaIds: null })],
+  });
+  const base = await start(store, stubAdapter());
+  const before = store.stateReads;
+  const first = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  const second = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  const health = await fetch(`${base}/health`);
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(health.status, 200);
+  assert.equal(store.stateReads, before);
+  assert.match(await first.text(), /A only/);
+
+  const disk = await read();
+  disk.tidbits[0].text = 'Alpha told Beta, "external cart rumor"';
+  await writeFile(filePath, `${JSON.stringify(disk)}\n`);
+  const bumped = new Date(Date.now() + 5000);
+  await utimes(filePath, bumped, bumped);
+  const external = await (await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`)).text();
+  assert.match(external, /external cart rumor/);
+  assert.equal(store.stateReads, before + 1);
+
+  await store.mutate((state) => {
+    state.tidbits[0].text = 'Alpha told Beta, "local cart rumor"';
+  });
+  const afterMutate = store.stateReads;
+  const local = await (await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`)).text();
+  assert.match(local, /local cart rumor/);
+  assert.equal(store.stateReads, afterMutate);
 });
 
 test('RSS includes known and broadcast-null items, excludes unknown, and emits display-name relationships', async () => {
@@ -131,7 +164,7 @@ test('missing show is 400; unknown and empty-persona shows are empty 200', async
   assert.doesNotMatch(await empty.text(), /<item>/);
 });
 
-test('RSS reloads the JSON file on every request', async () => {
+test('RSS picks up an external state edit when the file mtime changes', async () => {
   const { store, filePath } = await tempStore({
     tidbits: [tidbit({ text: 'Before edit', hearerPersonaIds: null })],
   });
