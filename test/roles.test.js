@@ -223,18 +223,14 @@ test('seedUserPrompt does not repeat the beat or sourcing rules', () => {
   }
 });
 
-test('telephone prompt carries the immediately previous telling', () => {
+test('batch seed prompt does not ask for a telephone-game retelling', () => {
   const roles = { teller: roster[0], hearers: [roster[1]], targets: [] };
   const prompt = seedUserPrompt({
     personas: roster,
     day: '2026-09-19',
     roles,
     register: RUMOR_REGISTERS[0],
-    previousTidbit: 'Alpha told Beta, "word is the kettle moved"',
   });
-  assert.match(prompt, /Telephone-chain source/);
-  assert.match(prompt, /word is the kettle moved/);
-  assert.match(prompt, /one telephone-game step/);
+  assert.doesNotMatch(prompt, /Telephone-chain source|telephone-game step|Preceding telling/);
   assert.match(prompt, /Dry, short sentences/);
-  assert.doesNotMatch(prompt, /Warm, over-explains the kettle/);
 });

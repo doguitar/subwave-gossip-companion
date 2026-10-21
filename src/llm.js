@@ -55,14 +55,10 @@ export function seedUserPrompt({
   day,
   roles,
   register,
-  previousTidbit = '',
 }) {
   const targets = roles.targets.length
     ? `${roles.targets.map(promptPersona).join('\n')} — the rumor MUST be about them, using these exact names: ${roles.targets.map((p) => p.name).join(', ')}.`
     : '(none — station-life only; name no persona)';
-  const evolution = previousTidbit
-    ? `\n## Telephone-chain source\nPreceding telling:\n${previousTidbit}\nRetell this same rumor as one telephone-game step: keep its core subject and thread, and add one believable distortion or embellishment.\n`
-    : '';
   const registerBlock = register
     ? `## Rumor register for this rumor
 ${register.name} — ${register.guidance}
@@ -77,7 +73,7 @@ Station day: ${day}
 
 Teller (already chosen): ${promptPersona(roles.teller)}
 Rumor-targets (already chosen): ${targets}
-${evolution}${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.`;
+${registerBlock}Write one rumor in the teller's voice, about the rumor-targets when any are listed.`;
 }
 
 export function extractJsonObject(raw) {
@@ -499,7 +495,6 @@ export async function generateSeed({
   register,
   existing = [],
   sessionTidbits = [],
-  previousTidbit = '',
   lifecycleId,
   fetchImpl = fetch,
   log,
@@ -522,7 +517,6 @@ export async function generateSeed({
     register,
     existing,
     sessionTidbits,
-    previousTidbit,
   });
   log?.info?.(
     `[gossip] LLM seed call starting provider=${provider} model=${model} day=${day} register=${register?.id ?? 'none'}`,

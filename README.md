@@ -1,6 +1,6 @@
 # Subwave Gossip Companion
 
-A persona-aware fictional gossip companion for SUB/WAVE. It generates linked telephone-game tidbits, serves an RSS feed for the station skill, ingests spoken events, and supports OpenAI-compatible, Google Gemini, and Anthropic LLM providers.
+A persona-aware fictional gossip companion for SUB/WAVE. A seed or refresh batch writes independent tidbits, each with its own teller, rumor-targets, and comic register. It does not retell the previous batch item. Telephone-game escalation happens later, when on-air follow-up records a spoken telling against an existing rumor thread. The companion serves an RSS feed for the station skill, ingests spoken events, and supports OpenAI-compatible, Google Gemini, and Anthropic LLM providers.
 
 ## Configuration
 
@@ -85,7 +85,7 @@ Set `GOSSIP_FEED_BASE_URL` to the public URL the station skill uses to fetch gos
 
 Each item `<title>` and `<description>` contains the retellable rumor body. Stored corkboard attribution such as `Alice told Bob, "…"` remains in history but is removed from the feed body. Stable ids are the RSS GUIDs. When identities resolve on the requested show, the item includes escaped `<gossipTeller>` and comma-separated `<gossipHearers>` display names; persona ids are never emitted. Station-gossip skills consume the rumor body as `item.rumor`, with teller, optional hearers, GUID, and publication time as metadata.
 
-A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events with an actor id record one when the line matches a tidbit. After a non-empty gossip RSS response, the TTS follow-up runs whether or not the request included `actor` (`actor` only shapes feed rotation and exclusion). The follow-up resolves the speaker from a persona id or display name and records the same kind of comment on the source rumor and the on-air tidbit. Fetches alone do not mark a rumor as voiced. The store keeps the newest 1000 comments.
+A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events with an actor id record one when the line matches a tidbit. After a non-empty gossip RSS response, the TTS follow-up runs whether or not the request included `actor` (`actor` only shapes feed rotation and exclusion). The follow-up resolves the speaker from a persona id or display name and records the same kind of comment on the source rumor and the on-air tidbit. Fetches alone do not mark a rumor as voiced. That on-air follow-up is the telephone chain: it attributes a spoken telling to the matched thread and can escalate the same rumor. Seed and refresh do not pass a previous telling into the next generation. The store keeps the newest 1000 comments.
 
 ### Refreshing gossip
 

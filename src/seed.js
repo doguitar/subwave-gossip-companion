@@ -80,7 +80,6 @@ async function generateOne({
   day,
   existing,
   sessionTidbits = [],
-  previousTidbit = '',
   lifecycleId,
   createdAt,
   log,
@@ -101,7 +100,6 @@ async function generateOne({
         register,
         existing,
         sessionTidbits,
-        previousTidbit,
         attempt,
         lifecycleId,
       });
