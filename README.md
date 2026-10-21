@@ -2,6 +2,8 @@
 
 A persona-aware fictional gossip companion for SUB/WAVE. A seed or refresh batch writes independent tidbits, each with its own teller, rumor-targets, and comic register. It does not retell the previous batch item. Telephone-game escalation happens later, when on-air follow-up records a spoken telling against an existing rumor thread. The companion serves an RSS feed for the station skill, ingests spoken events, and supports OpenAI-compatible, Google Gemini, and Anthropic LLM providers.
 
+Commands, HTTP routes, environment keys, and privacy are in [docs/reference.md](docs/reference.md). This page keeps the operating narrative; that page is the table of what the process actually accepts.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and set the Subwave credentials and LLM provider. With no `--base-dir`, the CLI loads `./.env`. If `GOSSIP_BASE_DIR` is already set, it loads `$GOSSIP_BASE_DIR/.env` instead. `--base-dir` wins over that variable and loads `<base-dir>/.env`. A missing file is ignored; any other read error names the path and stops startup.
