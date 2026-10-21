@@ -96,6 +96,7 @@ async function rewriteSegment(segmentPath, nowMs) {
   }
   const cutoff = nowMs - LLM_CALL_LOG_RETENTION_MS;
   const kept = [];
+  let dropped = false;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let record;
@@ -103,10 +104,13 @@ async function rewriteSegment(segmentPath, nowMs) {
       record = JSON.parse(line);
     } catch {
       if (mtimeMs >= cutoff) kept.push(line);
+      else dropped = true;
       continue;
     }
-    if (recordTimeMs(record, mtimeMs) >= cutoff) kept.push(JSON.stringify(record));
+    if (recordTimeMs(record, mtimeMs) >= cutoff) kept.push(line);
+    else dropped = true;
   }
+  if (!dropped) return;
   if (!kept.length) {
     await unlink(segmentPath).catch((err) => {
       if (err.code !== 'ENOENT') throw err;
