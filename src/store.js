@@ -29,6 +29,19 @@ export function legacyTidbitId(raw) {
   return createHash('sha1').update(tidbitKey(raw)).digest('hex');
 }
 
+function stringList(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()) : [];
+}
+
+function normalizeAnchors(raw) {
+  if (!raw || typeof raw !== 'object') return { location: '', ownerPersonaId: '', props: [] };
+  return {
+    location: typeof raw.location === 'string' ? raw.location.trim() : '',
+    ownerPersonaId: typeof raw.ownerPersonaId === 'string' ? raw.ownerPersonaId.trim() : '',
+    props: stringList(raw.props),
+  };
+}
+
 export function normalizeTidbit(raw) {
   const base = !raw || typeof raw !== 'object'
     ? { text: '', createdAt: '', tellerPersonaId: '', hearerPersonaIds: [] }
@@ -43,7 +56,22 @@ export function normalizeTidbit(raw) {
           : [],
     };
   const supplied = typeof raw?.id === 'string' ? raw.id.trim() : '';
-  return { ...base, id: supplied || legacyTidbitId(base) };
+  const id = supplied || legacyTidbitId(base);
+  const threadId = typeof raw?.threadId === 'string' && raw.threadId.trim() ? raw.threadId.trim() : id;
+  const canonicalTargetPersonaIds = stringList(raw?.canonicalTargetPersonaIds);
+  const canonicalSubjectPersonaId = typeof raw?.canonicalSubjectPersonaId === 'string' && raw.canonicalSubjectPersonaId.trim()
+    ? raw.canonicalSubjectPersonaId.trim()
+    : canonicalTargetPersonaIds[0] || '';
+  const toldAt = stringList(raw?.toldAt).filter((value) => !Number.isNaN(new Date(value).getTime()));
+  return {
+    ...base,
+    id,
+    threadId,
+    canonicalSubjectPersonaId,
+    canonicalTargetPersonaIds,
+    canonicalAnchors: normalizeAnchors(raw?.canonicalAnchors),
+    toldAt,
+  };
 }
 
 function normalizeComment(raw) {
@@ -97,6 +125,20 @@ export function recordGossipComment(state, record) {
   });
   state.gossipComments = comments.slice(-COMMENT_LIMIT);
   return state.gossipComments;
+}
+
+export function recordTidbitTelling(state, tidbitId, toldAt) {
+  const when = typeof toldAt === 'string' && !Number.isNaN(new Date(toldAt).getTime()) ? toldAt : '';
+  if (!when) return [];
+  const tidbit = currentTidbits(state).find((item) => item.id === tidbitId);
+  if (!tidbit) return [];
+  const threadId = tidbit.threadId || tidbit.id;
+  const members = currentTidbits(state).filter((item) => (item.threadId || item.id) === threadId);
+  const existing = members.flatMap((item) => item.toldAt || []);
+  if (existing.includes(when)) return existing;
+  const toldAtList = [...existing, when].sort();
+  for (const member of members) member.toldAt = toldAtList;
+  return toldAtList;
 }
 
 export function normalizeState(parsed) {
@@ -217,13 +259,14 @@ function compareOldestFirst(a, b) {
 
 function sameRumorSubject(a, b) {
   if (!a || !b || a.id === b.id) return Boolean(a && b && a.id === b.id);
+  if (String(a.text || '').length < 40 || String(b.text || '').length < 40) return false;
   return Boolean(matchVoicedTidbit([a], b.text) || matchVoicedTidbit([b], a.text));
 }
 
 function rumorSubjectGroups(tidbits) {
   const groups = [];
   for (const tidbit of tidbits) {
-    let group = groups.find((g) => g.some((t) => sameRumorSubject(t, tidbit)));
+    let group = groups.find((g) => g.some((t) => t.threadId === tidbit.threadId || sameRumorSubject(t, tidbit)));
     if (!group) {
       group = [];
       groups.push(group);
@@ -247,9 +290,18 @@ function newestComment(comments, tidbit, show) {
   return matches.reduce((best, c) => (c.commentedAt > best.commentedAt ? c : best));
 }
 
-function gossipRepresentatives(tidbits, actor, show, comments) {
+function retirementState(tidbit, now, policy) {
+  const toldAt = tidbit.toldAt || [];
+  const count = Number.isInteger(policy?.maxTellings) && policy.maxTellings > 0 ? policy.maxTellings : Infinity;
+  const ageMs = Number.isFinite(policy?.maxAgeMs) && policy.maxAgeMs > 0 ? policy.maxAgeMs : Infinity;
+  const created = new Date(tidbit.createdAt).getTime();
+  return toldAt.length >= count || (Number.isFinite(created) && now.getTime() - created >= ageMs);
+}
+
+function gossipRepresentatives(tidbits, actor, show, comments, { now = new Date(), policy = {} } = {}) {
   const groups = rumorSubjectGroups(tidbits);
   const selected = groups.filter(({ representative }) => {
+    if (retirementState(representative, now, policy)) return false;
     const latest = newestComment(comments, representative, show);
     return !(latest && latest.actorPersonaId === actor);
   });
@@ -268,7 +320,7 @@ function gossipRepresentatives(tidbits, actor, show, comments) {
   return [...never, ...prior].map((row) => row.group || row).map((group) => group.representative);
 }
 
-export function gossipForActor(state, personaIds, actorPersonaId, show) {
+export function gossipForActor(state, personaIds, actorPersonaId, show, options = {}) {
   const known = knownTidbits(state, personaIds);
   const actor = typeof actorPersonaId === 'string' ? actorPersonaId.trim() : '';
   const comments = gossipComments(state);
@@ -276,8 +328,9 @@ export function gossipForActor(state, personaIds, actorPersonaId, show) {
     const groups = rumorSubjectGroups(known);
     return groups
       .slice()
+      .filter((group) => !retirementState(group.representative, options.now || new Date(), options.policy || {}))
       .sort((a, b) => compareOldestFirst(a.root, b.root))
       .map((group) => group.representative);
   }
-  return gossipRepresentatives(known, actor, show, comments);
+  return gossipRepresentatives(known, actor, show, comments, options);
 }

@@ -253,6 +253,41 @@ test('TTS display name Uncle Kai is stored as his persona id and comments the so
   assert.equal(state.tidbits.at(-1).tellerPersonaId, 'p_79eaff');
 });
 
+test('on-air escalation keeps the matched thread canonical anchors and records its telling', async () => {
+  const { store, read } = await tempStore();
+  const text = 'Word is Gamma hid the violet microphone in the green room.';
+  await store.mutate((state) => {
+    state.tidbits.push({
+      id: 'source',
+      threadId: 'thread-1',
+      text,
+      createdAt: '2026-10-15T01:00:00.000Z',
+      tellerPersonaId: PERSONA_A.id,
+      hearerPersonaIds: null,
+      canonicalSubjectPersonaId: PERSONA_C.id,
+      canonicalTargetPersonaIds: [PERSONA_C.id],
+      canonicalAnchors: { location: 'green room', ownerPersonaId: PERSONA_C.id, props: ['violet microphone'] },
+    });
+  });
+  await appendGeneratedGossip({
+    store,
+    roster: [PERSONA_A, PERSONA_C],
+    showPersonas: [PERSONA_A],
+    spoken: {
+      kind: 'station-gossip',
+      text: 'Word is Gamma hid the violet microphone in the green room and blamed the coffee machine.',
+      t: '2026-10-15T01:34:20.342Z',
+      meta: { personaId: PERSONA_A.id, personaName: PERSONA_A.name },
+    },
+    log: { info() {}, warn() {} },
+  });
+  const state = await read();
+  const escalated = state.tidbits.at(-1);
+  assert.equal(escalated.threadId, 'thread-1');
+  assert.deepEqual(escalated.canonicalAnchors, { location: 'green room', ownerPersonaId: PERSONA_C.id, props: ['violet microphone'] });
+  assert.deepEqual(escalated.toldAt, ['2026-10-15T01:34:20.342Z']);
+});
+
 test('formatOnAirTidbit skips when identity cannot be resolved', () => {
   assert.equal(formatOnAirTidbit({ text: 'hello', meta: {} }, [], []), null);
 });

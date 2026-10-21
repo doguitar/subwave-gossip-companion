@@ -26,13 +26,23 @@ export function stationDay(now = new Date(), timeZone = 'UTC') {
   }
 }
 
-function tidbitFromRoles(roles, rumor, createdAt) {
+function tidbitFromRoles(roles, rumor, createdAt, canonicalAnchors = {}) {
+  const id = randomUUID();
   return {
-    id: randomUUID(),
+    id,
+    threadId: id,
     text: wrapRumor(roles, rumor),
     createdAt,
     tellerPersonaId: roles.teller.id,
     hearerPersonaIds: hearerIdsForRoles(roles),
+    canonicalSubjectPersonaId: roles.targets[0]?.id || '',
+    canonicalTargetPersonaIds: roles.targets.map((target) => target.id),
+    canonicalAnchors: {
+      location: canonicalAnchors.location || '',
+      ownerPersonaId: canonicalAnchors.ownerPersonaId || '',
+      props: Array.isArray(canonicalAnchors.props) ? canonicalAnchors.props : [],
+    },
+    toldAt: [],
   };
 }
 
@@ -69,9 +79,10 @@ async function generateOne({
         attempt,
       });
       const rumor = rumorFromPayload(payload);
+      const anchors = payload?.anchors || (Array.isArray(payload?.items) ? payload.items[0]?.anchors : null) || {};
       const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: 240 });
       if (check.ok) {
-        const tidbit = tidbitFromRoles(roles, rumor, createdAt);
+        const tidbit = tidbitFromRoles(roles, rumor, createdAt, anchors);
         log.info?.(
           `[gossip] tidbit accepted id=${tidbit.id} text=${formatRumorForOperationalLog(tidbit.text)}`,
         );
@@ -139,15 +150,26 @@ function applyUncoveredTargetBias(roles, roster, targetCovered) {
   return { ...roles, targets: nextTargets };
 }
 
-function pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets) {
+function pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets, recentTargetSets = new Set()) {
   let roles = null;
   for (let attempt = 0; attempt < TARGET_SET_PICK_ATTEMPTS; attempt += 1) {
     roles = applyUncoveredHearerBias(chooseRoles(roster), roster, involved);
     roles = applyUncoveredTargetBias(roles, roster, targetCovered);
     if (!roles) return null;
-    if (!usedTargetSets.has(rumorTargetSetKey(roles.targets))) return rolesFromRoster(roles, roster);
+    const key = rumorTargetSetKey(roles.targets);
+    if (!usedTargetSets.has(key) && !recentTargetSets.has(key)) return rolesFromRoster(roles, roster);
   }
   return rolesFromRoster(roles, roster);
+}
+
+function recentSelectionPenalty(tidbits) {
+  const targetSets = new Set();
+  const props = new Set();
+  for (const tidbit of tidbits) {
+    targetSets.add((tidbit.canonicalTargetPersonaIds || []).slice().sort().join(','));
+    for (const prop of tidbit.canonicalAnchors?.props || []) props.add(prop.toLowerCase());
+  }
+  return { targetSets, props };
 }
 
 function rolesFromRoster(roles, roster) {
@@ -342,6 +364,7 @@ export async function refreshGossip({
   const requireComplete = !pickRoles;
   const maxLinks = requireComplete ? Math.max(1, roster.length * 3) : cap;
   await store.reload();
+  const penalties = recentSelectionPenalty(currentTidbits(store.snapshot()));
   const retainedHistory = historyGenerations > 0
     ? generatedGossipHistory(store.snapshot()).flat()
     : [];
@@ -349,7 +372,7 @@ export async function refreshGossip({
     let roles = null;
     let register = null;
     for (let pickAttempt = 0; pickAttempt < ROLE_REGISTER_PICK_ATTEMPTS; pickAttempt += 1) {
-      roles = pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets);
+      roles = pickRolesAvoidingUsedTargetSets(chooseRoles, roster, involved, targetCovered, usedTargetSets, penalties.targetSets);
       if (!roles) break;
       register = chooseRegister(roles);
       if (register) break;
@@ -378,6 +401,10 @@ export async function refreshGossip({
     });
     if (!result.ok) {
       rejected.push({ reason: result.reason });
+      continue;
+    }
+    if (result.tidbit.canonicalAnchors.props.some((prop) => penalties.props.has(prop.toLowerCase()))) {
+      rejected.push({ reason: 'recent-prop' });
       continue;
     }
     tidbits.push(result.tidbit);

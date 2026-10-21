@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { listLlmCallLogSegments } from './callLog.js';
-import { currentTidbits, legacyTidbitId, recordGossipComment, tidbitKey } from './store.js';
+import { currentTidbits, legacyTidbitId, recordGossipComment, recordTidbitTelling, tidbitKey } from './store.js';
 import { matchVoicedTidbit } from './spoken.js';
 import { waitForStationGossipTts } from './ttsWatch.js';
 import { retellableRumor } from './validate.js';
@@ -154,6 +154,14 @@ export async function appendGeneratedGossip({
       return { added: 0, skipped: false, corrected: true };
     }
     item.id = legacyTidbitId(item);
+    const source = matchVoicedTidbit(existing, retellableRumor(spoken?.text));
+    if (source) {
+      item.threadId = source.threadId;
+      item.canonicalSubjectPersonaId = source.canonicalSubjectPersonaId;
+      item.canonicalTargetPersonaIds = source.canonicalTargetPersonaIds;
+      item.canonicalAnchors = source.canonicalAnchors;
+      item.toldAt = source.toldAt;
+    }
     state.tidbits.push(item);
     log.info?.(`[gossip] follow-up added 1 from on-air ${item.createdAt}`);
     attributeVoicedTidbits(state, item, spoken, session, log);
@@ -179,6 +187,7 @@ function attributeVoicedTidbits(state, item, spoken, session, log) {
       show,
       commentedAt,
     });
+    recordTidbitTelling(state, target.id, commentedAt);
   }
   log.info?.(`[gossip] attributed on-air line to ${actorPersonaId} across ${targets.size} tidbit(s)`);
 }

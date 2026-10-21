@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { createServer } from '../src/server.js';
+import { parseRssItems } from '../src/rss.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
 
 const servers = [];
@@ -13,6 +14,8 @@ async function start(store, adapter, generate, pickRoles) {
     refreshCount: 1,
     timezone: 'UTC',
     gossipHistoryGenerations: 7,
+    threadMaxTellings: 3,
+    threadMaxAgeMs: 24 * 60 * 60 * 1000,
   };
   const server = createServer({
     store,
@@ -24,6 +27,7 @@ async function start(store, adapter, generate, pickRoles) {
     summarizeHouseRules: async (rules) => rules,
     log: { warn() {}, error() {}, info() {} },
     watcher: { afterSkillFetch() {} },
+    now: () => new Date('2026-09-19T04:00:00.000Z'),
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   servers.push(server);
@@ -92,4 +96,54 @@ test('POST /gossip/refresh returns 502 and leaves prior board and history on dis
   assert.equal(disk.tidbits.length, 1);
   assert.equal(disk.tidbits[0].text, staleText);
   assert.deepEqual(disk.generatedGossipHistory, priorHistory);
+});
+
+test('refresh penalizes recently used target pairs and distinctive props with deterministic role picks', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({
+      id: 'old',
+      canonicalTargetPersonaIds: [PERSONA_C.id],
+      canonicalAnchors: { location: 'green room', ownerPersonaId: PERSONA_C.id, props: ['violet microphone'] },
+    })],
+  });
+  const repeated = { teller: PERSONA_A, hearers: [], targets: [PERSONA_C] };
+  const fresh = { teller: PERSONA_A, hearers: [], targets: [PERSONA_B] };
+  let picks = 0;
+  const base = await start(
+    store,
+    stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    async ({ roles }) => ({
+      rumor: roles.targets[0].id === PERSONA_B.id
+        ? 'unconfirmed Beta moved a new cart into the green room'
+        : 'unconfirmed Gamma moved a violet microphone into the green room',
+      anchors: { props: roles.targets[0].id === PERSONA_B.id ? ['new cart'] : ['violet microphone'] },
+    }),
+    () => {
+      picks += 1;
+      return picks < 3 ? repeated : fresh;
+    },
+  );
+  const res = await fetch(`${base}/gossip/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ count: 1 }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual(body.tidbits[0].canonicalTargetPersonaIds, [PERSONA_B.id]);
+  assert.deepEqual(body.tidbits[0].canonicalAnchors.props, ['new cart']);
+});
+
+test('RSS leaves a saturated thread out of the first item without changing its wire shape', async () => {
+  const { store } = await tempStore({
+    tidbits: [
+      tidbit({ id: 'saturated', threadId: 'saturated', text: 'Saturated rumor', hearerPersonaIds: null, toldAt: ['2026-09-19T01:00:00.000Z', '2026-09-19T02:00:00.000Z', '2026-09-19T03:00:00.000Z'] }),
+      tidbit({ id: 'fresh', threadId: 'fresh', text: 'Fresh rumor', hearerPersonaIds: null }),
+    ],
+  });
+  const base = await start(store, stubAdapter({ personas: [PERSONA_A] }), async () => ({ rumor: 'unused' }), () => null);
+  const res = await fetch(`${base}/gossip.rss?show=Test%20Show`);
+  assert.equal(res.status, 200);
+  const items = parseRssItems(await res.text());
+  assert.deepEqual(items, [{ id: 'fresh', text: 'Fresh rumor' }]);
 });

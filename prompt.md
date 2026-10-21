@@ -4,7 +4,8 @@ The teller and rumor-targets are already chosen. Write only the quoted rumor. Th
 
 ## Output
 Return one JSON object and nothing else:
-{"rumor":"<the rumor>"}
+{"rumor":"<the rumor>","anchors":{"location":"<exact location, or empty>","ownerPersonaId":"<owner persona ID, or empty>","props":["<distinctive prop>"]}}
+The anchors name only facts already in the rumor. Use the supplied persona IDs for an owner; return empty fields when a fact is absent.
 
 ## Rumor
 One sentence, 20 to 240 characters, in the comic register supplied in the user message.

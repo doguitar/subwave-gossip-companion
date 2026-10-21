@@ -77,6 +77,24 @@ test('review retains its accepted baseline after a rejected later revision', () 
   assert.equal(second.tidbits[0].text, `Alpha told Beta, "${accepted}"`);
 });
 
+test('review revisions retain immutable thread and anchor metadata', () => {
+  const tidbit = {
+    ...candidate(),
+    threadId: 'thread-1',
+    canonicalSubjectPersonaId: PERSONA_C.id,
+    canonicalTargetPersonaIds: [PERSONA_C.id],
+    canonicalAnchors: { location: 'green room', ownerPersonaId: PERSONA_C.id, props: ['violet microphone'] },
+  };
+  const result = applyReviewRevisions(
+    [tidbit],
+    new Map([[tidbit.id, 'Gamma hid a cart behind the legal ID and Gamma yelped when the booth light flashed']]),
+    new Map([[tidbit.id, { roles, register }]]),
+  );
+  assert.equal(result.accepted, 1);
+  assert.equal(result.tidbits[0].threadId, 'thread-1');
+  assert.deepEqual(result.tidbits[0].canonicalAnchors, tidbit.canonicalAnchors);
+});
+
 test('review batch marks missing canonical metadata stale and reports outcomes', async () => {
   const tidbit = candidate();
   const result = await reviewGossipBatch({
