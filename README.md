@@ -138,7 +138,7 @@ This publishes host port `8787` to the image's container port `8080`; use `http:
 
 `GOSSIP_SHUTDOWN_DEADLINE_MS` defaults to `5000`. The orchestrator stop grace has to be strictly longer than that deadline plus the five-second exclusive state-lock wait. Docker's default grace of 10 seconds is not long enough for the default deadline: set it to at least 15 seconds (`docker run --stop-timeout`, `docker stop --time`, Compose `stop_grace_period`). Unraid uses Docker's stop grace and needs the same setting.
 
-Put `prompt.md` and `gossip-types.json` in the mounted workspace, or set `GOSSIP_TYPES_PATH` to another path under the mount. The entrypoint refreshes `prompt.md.default` on every start and seeds `prompt.md` when it is missing or empty; the Node process applies the same rules for non-Docker runs. It sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, operator prompt/types files, the operational log, and the LLM call log.
+Put `prompt.md` and `gossip-types.json` in the mounted workspace, or set `GOSSIP_TYPES_PATH` to another path under the mount. The entrypoint refreshes `prompt.md.default` on every start and seeds `prompt.md` when it is missing or empty; the Node process applies the same rules for non-Docker runs. It sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, operator prompt/types files, the operational log, and the LLM call log. What to copy, how to recover a corrupt state file, and how image tags relate to that directory are in [docs/backup.md](docs/backup.md).
 
 ## GitHub Container Registry
 

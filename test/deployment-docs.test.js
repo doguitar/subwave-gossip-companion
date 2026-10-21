@@ -166,6 +166,26 @@ test('contributor guidance routes changes and separates issue kinds', async () =
   assert.match(operator, /Operator configuration/);
 });
 
+test('backup guidance names workspace files, corrupt restore, and image tags', async () => {
+  const [readme, backup] = await Promise.all([
+    readArtifact('README.md'),
+    readArtifact('docs/backup.md'),
+  ]);
+  assert.match(readme, /docs\/backup\.md/);
+  for (const phrase of [
+    'gossip-state.json',
+    'prompt.md.default',
+    'gossip-types.json',
+    'logs/',
+    'does not rewrite',
+    'Do not delete the file',
+    'ghcr.io',
+    'latest',
+  ]) {
+    assert.match(backup, new RegExp(phrase.replaceAll(/[./]/g, '\\$&')));
+  }
+});
+
 test('operator README documents corrupt state refusal and manual restore', async () => {
   const readme = await readArtifact('README.md');
   assert.match(readme, /exits non-zero/);
