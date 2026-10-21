@@ -136,6 +136,36 @@ test('operator reference covers commands, routes, env, and privacy', async () =>
   assert.match(reference, /full/);
 });
 
+test('contributor guidance routes changes and separates issue kinds', async () => {
+  const [agents, contributing, checklist, companion, subwave, operator, readme] = await Promise.all([
+    readArtifact('AGENTS.md'),
+    readArtifact('CONTRIBUTING.md'),
+    readArtifact('.github/PULL_REQUEST_TEMPLATE.md'),
+    readArtifact('.github/ISSUE_TEMPLATE/companion-defect.md'),
+    readArtifact('.github/ISSUE_TEMPLATE/subwave-defect.md'),
+    readArtifact('.github/ISSUE_TEMPLATE/operator-configuration.md'),
+    readArtifact('README.md'),
+  ]);
+  assert.match(readme, /AGENTS\.md/);
+  assert.match(agents, /src\/seed\.js/);
+  assert.match(agents, /src\/store\.js/);
+  assert.match(agents, /src\/rss\.js/);
+  assert.match(agents, /skills\/station-gossip\/SKILL\.md/);
+  assert.match(agents, /src\/config\.js/);
+  assert.match(agents, /Dockerfile/);
+  assert.match(agents, /npm test/);
+  assert.match(agents, /docs\/reference\.md/);
+  assert.match(agents, /Do not commit `\.env`/);
+  assert.match(contributing, /companion-defect/);
+  assert.match(contributing, /Subwave-defect/);
+  assert.match(contributing, /operator-configuration/);
+  assert.match(checklist, /npm test/);
+  assert.match(checklist, /secrets/);
+  assert.match(companion, /Companion defect/);
+  assert.match(subwave, /Subwave defect/);
+  assert.match(operator, /Operator configuration/);
+});
+
 test('operator README documents corrupt state refusal and manual restore', async () => {
   const readme = await readArtifact('README.md');
   assert.match(readme, /exits non-zero/);
