@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { appendLlmCall } from './callLog.js';
+import { appendLlmCall, shapeLlmCallRecord } from './callLog.js';
 import { personaSoul } from './roles.js';
 
 export const SEED_SYSTEM = readFileSync(new URL('../prompt.md', import.meta.url), 'utf8').trim();
@@ -329,11 +329,13 @@ function usageFromResponse(provider, data) {
 
 async function recordLlmCall(config, record) {
   if (!config.llmCallLogPath) return;
-  await appendLlmCall(config.llmCallLogPath, {
+  const shaped = shapeLlmCallRecord({
     version: DIAGNOSTIC_VERSION,
     at: new Date().toISOString(),
     ...record,
-  });
+  }, config.llmLogContent || 'metadata');
+  if (!shaped) return;
+  await appendLlmCall(config.llmCallLogPath, shaped);
 }
 
 async function invokeLlm({ config, kind, provider, model, request, fetchImpl, lifecycleId, retry = 0 }) {

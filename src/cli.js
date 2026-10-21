@@ -9,6 +9,7 @@ import { refreshGossip, seedGossip } from './seed.js';
 import { ingestSpoken } from './ingest.js';
 import { generateReview, generateSeed, preflightProvider, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
 import { createFollowupWatcher } from './followup.js';
+import { maintainLlmCallLog } from './callLog.js';
 import { createLog } from './log.js';
 
 function baseDirFromArgs(argv) {
@@ -76,6 +77,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   ensurePromptWorkspace(baseDir);
   config = requireConfig(env);
   warnIfPromptDrift(config.baseDir, log);
+  if (config.llmCallLogPath) await maintainLlmCallLog(config.llmCallLogPath);
   const store = new GossipStore(config.statePath);
   await store.load();
   log.info(`[gossip] storage ready path=${config.statePath} tidbits=${store.snapshot().tidbits.length}`);
@@ -97,7 +99,16 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const watcher = createFollowupWatcher({ store, adapter, config, log });
     const server = createServer({ store, adapter, config, log, watcher });
     await listen(server, config, log);
+    const maintenance = config.llmCallLogPath
+      ? setInterval(() => {
+        maintainLlmCallLog(config.llmCallLogPath).catch((err) => {
+          log.warn?.(`[gossip] LLM call log retention failed: ${err.message}`);
+        });
+      }, 60 * 60 * 1000)
+      : null;
+    maintenance?.unref?.();
     const shutdown = (signal) => {
+      if (maintenance) clearInterval(maintenance);
       log.info(`[gossip] received ${signal}; shutting down`);
       server.close(() => process.exit(0));
     };
