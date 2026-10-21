@@ -7,7 +7,7 @@ import { SubwaveAdapter } from './subwave.js';
 import { createServer, listen } from './server.js';
 import { refreshGossip, seedGossip } from './seed.js';
 import { ingestSpoken } from './ingest.js';
-import { generateReview, generateSeed, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
+import { generateReview, generateSeed, preflightProvider, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
 import { createFollowupWatcher } from './followup.js';
 import { createLog } from './log.js';
 
@@ -49,10 +49,14 @@ export function generateOptions(argv, config) {
 export async function main(argv = process.argv.slice(2), env = process.env) {
   applyCliOptions(argv, env);
   const baseDir = path.resolve(env.GOSSIP_BASE_DIR || '.');
-  ensurePromptWorkspace(baseDir);
   const command = argv[0] || 'serve';
-  const config = requireConfig(env);
+  let config = requireConfig(env);
   const log = createLog(config.operationalLogPath);
+  if (['generate', 'seed', 'gossip:seed', 'refresh', 'gossip:refresh', 'summarize-souls'].includes(command)) {
+    await preflightProvider({ config, log });
+  }
+  ensurePromptWorkspace(baseDir);
+  config = requireConfig(env);
   warnIfPromptDrift(config.baseDir, log);
   const store = new GossipStore(config.statePath);
   await store.load();

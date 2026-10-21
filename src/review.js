@@ -64,6 +64,7 @@ export async function reviewGossipBatch({
   generateReview,
   log = console,
   minLength = 20,
+  lifecycleId,
 }) {
   if (!reviewRounds || reviewRounds <= 0 || !tidbits.length || !generateReview) {
     return { tidbits, roundsCompleted: 0, accepted: 0, rejected: 0, stale: 0 };
@@ -87,6 +88,7 @@ export async function reviewGossipBatch({
         })),
         round,
         totalRounds: reviewRounds,
+        lifecycleId,
       });
       const revisions = reviewRumorsFromPayload(payload, current);
       const merged = applyReviewRevisions(current, revisions, rolesById, { minLength, log, round });

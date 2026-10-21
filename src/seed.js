@@ -56,6 +56,7 @@ async function generateOne({
   existing,
   sessionTidbits = [],
   previousTidbit = '',
+  lifecycleId,
   createdAt,
   log,
   sleep = defaultSleep,
@@ -77,6 +78,7 @@ async function generateOne({
         sessionTidbits,
         previousTidbit,
         attempt,
+        lifecycleId,
       });
       const rumor = rumorFromPayload(payload);
       const anchors = payload?.anchors || (Array.isArray(payload?.items) ? payload.items[0]?.anchors : null) || {};
@@ -221,6 +223,8 @@ export async function seedGossip({
   summarizeSouls,
   summarizeHouseRules,
 }) {
+  const lifecycleId = randomUUID();
+  const startedAt = Date.now();
   const chooseRoles = pickRoles || pickGossipRoles;
   const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
   const chooseRegister = pickRegister
@@ -244,6 +248,7 @@ export async function seedGossip({
   const batchTidbits = [];
   const batchRoles = new Map();
   let review = { accepted: 0, rejected: 0, stale: 0 };
+  let reviewedById = new Map();
   const seen = new Set(currentTidbits(store.snapshot()).map(tidbitKey));
   let seeded = 0;
   let rejected = 0;
@@ -267,6 +272,7 @@ export async function seedGossip({
       log,
       sleep,
       minLength,
+      lifecycleId,
     });
     if (!result.ok) {
       rejected += 1;
@@ -276,9 +282,6 @@ export async function seedGossip({
       rejected += 1;
       continue;
     }
-    await store.mutate((state) => {
-      state.tidbits.push(result.tidbit);
-    });
     seen.add(tidbitKey(result.tidbit));
     batchTidbits.push(result.tidbit);
     batchRoles.set(result.tidbit.id, { roles, register });
@@ -296,25 +299,25 @@ export async function seedGossip({
       generateReview,
       log,
       minLength,
+      lifecycleId,
     });
     const { tidbits: reviewed } = result;
     review = result;
     const byId = new Map(reviewed.map((t) => [t.id, t]));
-    await store.mutate((state) => {
-      state.tidbits = state.tidbits.map((t) => byId.get(t.id) || t);
-    });
+    reviewedById = byId;
     for (let i = 0; i < sessionTexts.length; i += 1) {
       const id = batchTidbits[i]?.id;
       const updated = id ? byId.get(id) : null;
       if (updated) sessionTexts[i] = updated.text;
     }
   }
-  if (sessionTexts.length || historyGenerations === 0) {
+  if (batchTidbits.length || sessionTexts.length || historyGenerations === 0) {
     await store.mutate((state) => {
+      state.tidbits.push(...batchTidbits.map((tidbit) => reviewedById.get(tidbit.id) || tidbit));
       appendGeneratedGossipHistory(state, sessionTexts, historyGenerations);
     });
   }
-  log.info?.(`[gossip] seeded ${seeded} tidbits for ${day}`);
+  log.info?.(`[gossip] lifecycle ${JSON.stringify({ version: 1, lifecycleId, kind: 'seed', stage: 'complete', elapsedMs: Date.now() - startedAt, seeded, rejected, review })}`);
   return { seeded, rejected, day, skipped: seeded === 0, review };
 }
 
@@ -338,6 +341,8 @@ export async function refreshGossip({
   summarizeSouls,
   summarizeHouseRules,
 }) {
+  const lifecycleId = randomUUID();
+  const startedAt = Date.now();
   const chooseRoles = pickRoles || pickGossipRoles;
   const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
   const chooseRegister = pickRegister
@@ -398,6 +403,7 @@ export async function refreshGossip({
       log,
       sleep,
       minLength,
+      lifecycleId,
     });
     if (!result.ok) {
       rejected.push({ reason: result.reason });
@@ -439,6 +445,7 @@ export async function refreshGossip({
       generateReview,
       log,
       minLength,
+      lifecycleId,
     });
     finalTidbits = result.tidbits;
     review = result;
@@ -448,7 +455,7 @@ export async function refreshGossip({
     appendGeneratedGossipHistory(state, finalTidbits.map((t) => t.text), historyGenerations);
     state.gossipComments = pruneGossipCommentsToTidbits(finalTidbits, state.gossipComments);
   });
-  log.info?.(`[gossip] refreshed board with ${tidbits.length} linked tidbit(s) for ${day}`);
+  log.info?.(`[gossip] lifecycle ${JSON.stringify({ version: 1, lifecycleId, kind: 'refresh', stage: 'complete', elapsedMs: Date.now() - startedAt, refreshed: finalTidbits.length, rejected: rejected.length, review })}`);
   return { refreshed: finalTidbits.length, rejected: rejected.length, day, tidbits: finalTidbits, review };
 }
 

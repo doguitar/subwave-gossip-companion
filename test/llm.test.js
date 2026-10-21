@@ -19,7 +19,7 @@ import {
 } from '../src/callLog.js';
 import { loadConfig } from '../src/config.js';
 import { createLog, formatRumorForOperationalLog } from '../src/log.js';
-import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse, soulSummaryUserPrompt, summarizeHouseRules, summarizePersonaSouls } from '../src/llm.js';
+import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse, preflightProvider, soulSummaryUserPrompt, summarizeHouseRules, summarizePersonaSouls } from '../src/llm.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { PERSONA_A, PERSONA_B } from './helpers.js';
 
@@ -399,10 +399,13 @@ test('generateSeed does not write multi-line prompt bodies to the operational lo
   assert.ok(!physicalLines.some((line) => line.includes('System soul')));
 
   const llmLog = await readFile(llmCallLogPath, 'utf8');
-  const record = JSON.parse(llmLog.trim().split('\n').at(-1));
-  assert.equal(record.prompt.system, systemPrompt);
-  assert.match(record.prompt.user, /anti-repeat/);
-  assert.match(record.prompt.user, /House rules/);
+  const records = llmLog.trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(records.length, 2);
+  assert.equal(records[0].stage, 'start');
+  assert.equal(records[1].stage, 'success');
+  assert.equal(records[0].lifecycleId, records[1].lifecycleId);
+  assert.equal(llmLog.includes('anti-repeat'), false);
+  assert.equal(llmLog.includes('System soul'), false);
 });
 
 test('parseLlmResponse ignores Google thought parts and Anthropic non-text blocks', () => {
@@ -531,8 +534,62 @@ test('summarizeHouseRules keeps setting and language limits', async () => {
     },
   });
   assert.equal(summary, 'Garbage-boat pirate station. Adult language is allowed.');
-  const logged = JSON.parse(await readFile(logPath, 'utf8'));
-  assert.equal(logged.kind, 'house-rules-summary');
-  assert.equal(logged.request.headers.Authorization, '[redacted]');
+  const logged = (await readFile(logPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(logged.at(-1).kind, 'house-rules-summary');
+  assert.equal(logged.at(-1).stage, 'success');
   assert.equal(await summarizeHouseRules({ config: {}, houseRules: '   ' }), '');
+});
+
+test('generateSeed records correlated, redacted terminal failures', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-'));
+  const logPath = path.join(dir, 'llm-calls.jsonl');
+  const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
+  const register = RUMOR_REGISTERS.find((r) => r.id === 'deadpan-absurdity');
+  await assert.rejects(
+    generateSeed({
+      config: { llmProvider: 'openai', llmApiKey: 'sk-secret', llmModel: 'm', openaiBaseUrl: 'https://llm.example/v1', llmCallLogPath: logPath },
+      day: '2026-09-19', roles, register,
+      fetchImpl: async () => ({ ok: false, status: 400, text: async () => 'authorization: Bearer sk-secret invalid' }),
+    }),
+    /HTTP 400/,
+  );
+  const records = (await readFile(logPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(records.length, 2);
+  assert.equal(records[0].stage, 'start');
+  assert.equal(records[1].stage, 'http-failure');
+  assert.equal(records[0].invocationId, records[1].invocationId);
+  assert.equal(records[1].status, 400);
+  assert.equal(JSON.stringify(records).includes('sk-secret'), false);
+});
+
+test('generateSeed records thrown transport failures', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-'));
+  const logPath = path.join(dir, 'llm-calls.jsonl');
+  const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
+  const register = RUMOR_REGISTERS.find((r) => r.id === 'deadpan-absurdity');
+  await assert.rejects(generateSeed({
+    config: { llmProvider: 'openai', llmApiKey: 'sk-test', llmModel: 'm', openaiBaseUrl: 'https://llm.example/v1', llmCallLogPath: logPath },
+    day: '2026-09-19', roles, register,
+    fetchImpl: async () => { throw new Error('connection reset'); },
+  }), /connection reset/);
+  const records = (await readFile(logPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(records.at(-1).stage, 'transport-failure');
+  assert.equal(records[0].lifecycleId, records[1].lifecycleId);
+});
+
+test('preflight validates supported provider models and preserves unsupported paths', async () => {
+  const validated = await preflightProvider({
+    config: { llmProvider: 'openai', llmApiKey: 'sk-test', llmModel: 'gpt-test', openaiBaseUrl: 'https://api.openai.com/v1' },
+    fetchImpl: async (url, options) => {
+      assert.equal(url, 'https://api.openai.com/v1/models/gpt-test');
+      assert.equal(options.headers.Authorization, 'Bearer sk-test');
+      return { ok: true };
+    },
+  });
+  assert.equal(validated.capability, 'validated');
+  const unsupported = await preflightProvider({
+    config: { llmProvider: 'anthropic', llmApiKey: 'ant-test', llmModel: 'claude-test' },
+    fetchImpl: async () => { throw new Error('must not fetch'); },
+  });
+  assert.equal(unsupported.capability, 'unsupported');
 });

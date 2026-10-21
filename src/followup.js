@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { listLlmCallLogSegments } from './callLog.js';
 import { currentTidbits, legacyTidbitId, recordGossipComment, recordTidbitTelling, tidbitKey } from './store.js';
 import { matchVoicedTidbit } from './spoken.js';
@@ -127,13 +128,16 @@ export async function appendGeneratedGossip({
   session = null,
   log = console,
 }) {
+  const lifecycleId = randomUUID();
+  const startedAt = Date.now();
   const item = formatOnAirTidbit(spoken, roster, showPersonas, session);
   if (!item) {
     log.warn?.('[gossip] follow-up skipped; unresolved broadcaster');
+    log.info?.(`[gossip] lifecycle ${JSON.stringify({ version: 1, lifecycleId, kind: 'follow-up', stage: 'rejected', elapsedMs: Date.now() - startedAt, reason: 'unresolved-broadcaster' })}`);
     return { added: 0, skipped: true };
   }
 
-  return store.mutate((state) => {
+  const result = await store.mutate((state) => {
     const existing = currentTidbits(state);
     const already = existing.find((t) => tidbitKey(t) === tidbitKey(item));
     if (already) {
@@ -167,6 +171,8 @@ export async function appendGeneratedGossip({
     attributeVoicedTidbits(state, item, spoken, session, log);
     return { added: 1, skipped: false };
   });
+  log.info?.(`[gossip] lifecycle ${JSON.stringify({ version: 1, lifecycleId, kind: 'follow-up', stage: 'complete', elapsedMs: Date.now() - startedAt, ...result })}`);
+  return result;
 }
 
 function attributeVoicedTidbits(state, item, spoken, session, log) {
