@@ -137,7 +137,29 @@ The GitHub Actions workflow publishes `ghcr.io/<owner>/subwave-gossip-companion`
 
 ## Scheduled commands
 
-Use the included `crontab` for daily seeding and recurring spoken-event ingestion, adding `--base-dir` to point at the persistent runtime directory when deployed outside Docker.
+The image entrypoint only runs `serve` (`node src/cli.js serve --base-dir /workspace`). It does not install cron. Scheduling stays on the host, Unraid User Scripts, or another external runner.
+
+`refresh` replaces the active gossip slate. `seed` appends tidbits and leaves existing ones in place. The daily job in `crontab` is `refresh`. Use `seed` only when you intentionally want to append. `ingest-spoken` pulls new spoken events into state; it does not generate the daily slate.
+
+Application code in the image is `/app`. Persistent state is `/workspace`. Every example passes `--base-dir /workspace`.
+
+Bare metal (checkout or image filesystem mounted at `/app`, workspace at `/workspace`):
+
+```bash
+cd /app && node src/cli.js refresh --base-dir /workspace
+cd /app && node src/cli.js seed --base-dir /workspace
+cd /app && node src/cli.js ingest-spoken --base-dir /workspace
+```
+
+Docker or Unraid, from the host, against a running container named `subwave-gossip-companion`:
+
+```bash
+docker exec subwave-gossip-companion node src/cli.js refresh --base-dir /workspace
+docker exec subwave-gossip-companion node src/cli.js seed --base-dir /workspace
+docker exec subwave-gossip-companion node src/cli.js ingest-spoken --base-dir /workspace
+```
+
+The included `crontab` is a host crontab for the same `/app` and `/workspace` paths: daily `refresh` at 04:00 and `ingest-spoken` every five minutes. It is not copied into the image.
 
 ## Unraid
 

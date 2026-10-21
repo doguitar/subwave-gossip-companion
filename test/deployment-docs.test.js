@@ -11,10 +11,11 @@ async function readArtifact(relativePath) {
 }
 
 test('deployment documentation keeps the Docker, image, and Unraid port contract aligned', async () => {
-  const [dockerfile, readme, unraidTemplate] = await Promise.all([
+  const [dockerfile, readme, unraidTemplate, crontab] = await Promise.all([
     readArtifact('Dockerfile'),
     readArtifact('README.md'),
     readArtifact('unraid/my-subwave-gossip-companion.xml'),
+    readArtifact('crontab'),
   ]);
 
   assert.match(dockerfile, /GOSSIP_PORT=8080/);
@@ -38,6 +39,16 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
   assert.match(readme, /GOSSIP_REFRESH_SECRET/);
   assert.match(readme, /Authorization: Bearer/);
   assert.doesNotMatch(readme, /http:\/\/127\.0\.0\.1:8095/);
+  assert.match(readme, /The image entrypoint only runs `serve`/);
+  assert.match(readme, /`refresh` replaces the active gossip slate/);
+  assert.match(readme, /`seed` appends tidbits/);
+  assert.match(readme, /node src\/cli\.js refresh --base-dir \/workspace/);
+  assert.match(readme, /node src\/cli\.js seed --base-dir \/workspace/);
+  assert.match(readme, /node src\/cli\.js ingest-spoken --base-dir \/workspace/);
+  assert.match(crontab, /node src\/cli\.js refresh --base-dir \/workspace/);
+  assert.match(crontab, /node src\/cli\.js ingest-spoken --base-dir \/workspace/);
+  assert.doesNotMatch(crontab, /\/opt\/station-gossip-companion/);
+  assert.doesNotMatch(crontab, /^[^#]*\bseed\b/m);
 
   assert.match(
     unraidTemplate,
