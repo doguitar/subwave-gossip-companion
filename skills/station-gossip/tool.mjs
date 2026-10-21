@@ -3,8 +3,8 @@ export const description = 'Read current show-known station gossip from the comp
 export const configFields = {
   feedUrl: {
     type: 'string',
-    label: 'UPDG Gossip',
-    hint: 'http://127.0.0.1:8080',
+    label: 'Gossip feed URL',
+    hint: 'http://192.168.1.20:8080',
   },
 };
 

@@ -93,6 +93,21 @@ test('skill uses the configured feed URL and does not invent a host', async () =
   assert.deepEqual(missing, { available: false });
 });
 
+test('skill config label and install guide match the tool contract', async () => {
+  const [{ configFields }, skillDoc, readme] = await Promise.all([
+    import('../skills/station-gossip/tool.mjs'),
+    readFile(new URL('../docs/skills.md', import.meta.url), 'utf8'),
+    readFile(new URL('../README.md', import.meta.url), 'utf8'),
+  ]);
+  assert.equal(configFields.feedUrl.label, 'Gossip feed URL');
+  assert.doesNotMatch(configFields.feedUrl.label, /UPDG/);
+  assert.match(readme, /docs\/skills\.md/);
+  assert.match(skillDoc, /station-gossip-cohosted/);
+  assert.match(skillDoc, /"available": false/);
+  assert.match(skillDoc, /item\.rumor|`rumor`/);
+  assert.match(skillDoc, /feedUrl is not configured/);
+});
+
 test('skill instructions escalate the rumor in character and never narrate drift', async () => {
   const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
   const cohostedSkill = await readFile(new URL('../skills/station-gossip-cohosted/SKILL.md', import.meta.url), 'utf8');
