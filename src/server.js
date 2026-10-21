@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import { parseRefreshCount } from './config.js';
-import { currentTidbits, gossipForActor } from './store.js';
+import { currentTidbits, gossipForActor, stateFileReadable } from './store.js';
 import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
@@ -103,6 +103,79 @@ function hasRefreshCredential(req, secret) {
   return timingSafeEqual(secretDigest(credential), secretDigest(`Bearer ${secret}`));
 }
 
+
+const READINESS_DEADLINE_MS = 2000;
+
+function probeReason(err) {
+  return String(err?.code === 'CONFIG' ? 'missing-credentials' : err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : err?.status ? 'http-error' : 'unreachable')
+    .replace(/[\r\n]+/g, ' ')
+    .trim() || 'unreachable';
+}
+
+function warnProbe(log, check, reason) {
+  const line = `[gossip] lifecycle ${JSON.stringify({
+    version: 1,
+    kind: 'probe',
+    check,
+    ready: false,
+    reason: String(reason).replace(/[\r\n]+/g, ' ').trim(),
+  })}`;
+  log.warn?.(line);
+}
+
+function withDeadline(work, ms, controller) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(Object.assign(new Error('readiness deadline exceeded'), { name: 'TimeoutError' }));
+    }, ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+async function writeReadiness(res, { store, adapter, log }) {
+  const controller = new AbortController();
+  const checks = { state: 'error', subwave: 'error' };
+  const pending = new Set(['state', 'subwave']);
+  const failures = [];
+  const record = (name, ok, reason) => {
+    if (!pending.has(name)) return;
+    pending.delete(name);
+    if (ok) checks[name] = 'ok';
+    else failures.push({ name, reason });
+  };
+  const stateWork = stateFileReadable(store.configuredPath()).then(
+    (result) => record('state', result.readable, result.reason),
+    (err) => record('state', false, probeReason(err)),
+  );
+  const subwaveWork = adapter.getSchedule({ signal: controller.signal }).then(
+    () => record('subwave', true),
+    (err) => record('subwave', false, probeReason(err)),
+  );
+  try {
+    await withDeadline(Promise.allSettled([stateWork, subwaveWork]), READINESS_DEADLINE_MS, controller);
+  } catch (err) {
+    controller.abort();
+    for (const name of [...pending]) record(name, false, probeReason(err));
+  }
+  for (const name of ['state', 'subwave']) {
+    const failure = failures.find((item) => item.name === name);
+    if (failure) warnProbe(log, failure.name, failure.reason);
+  }
+  const ready = checks.state === 'ok' && checks.subwave === 'ok';
+  res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(ready ? { ready: true } : { ready: false, checks }));
+}
+
 export function createServer({
   store,
   adapter,
@@ -127,17 +200,21 @@ export function createServer({
     try {
       const url = new URL(req.url || '/', `http://${req.headers.host || `${config.host}:${config.port}`}`);
       const remote = req.socket?.remoteAddress || '-';
+      if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/ready')) {
+        if (url.pathname === '/health') {
+          res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('ok\n');
+          return;
+        }
+        await writeReadiness(res, { store, adapter, log });
+        return;
+      }
       if (req.method === 'GET' && url.pathname === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(buildTidbitPage(currentTidbits(store.snapshot())));
         return;
       }
       log.info?.(`[gossip] ${req.method} ${url.pathname}${url.search} from ${remote}`);
-      if (req.method === 'GET' && url.pathname === '/health') {
-        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('ok\n');
-        return;
-      }
       if ((req.method === 'POST' || req.method === 'GET') && (url.pathname === '/gossip/refresh' || url.pathname === '/refresh')) {
         if (req.method === 'GET') {
           res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8', Allow: 'POST' });

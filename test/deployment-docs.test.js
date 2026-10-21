@@ -20,12 +20,20 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
 
   assert.match(dockerfile, /GOSSIP_PORT=8080/);
   assert.match(dockerfile, /^EXPOSE 8080$/m);
+  assert.match(
+    dockerfile,
+    /HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\[\s\S]*127\.0\.0\.1[\s\S]*GOSSIP_PORT[\s\S]*\/health/,
+  );
+  assert.doesNotMatch(dockerfile, /\/ready/);
 
   assert.match(readme, /docker run --rm -p 8787:8080 \\/);
   assert.match(
     readme,
     /This publishes host port `8787` to the image's container port `8080`;/,
   );
+  assert.match(readme, /`GET \/health` is the liveness probe/);
+  assert.match(readme, /`GET \/ready` is the readiness probe/);
+  assert.match(readme, /image healthcheck calls liveness only/);
   assert.match(
     readme,
     /The template maps host port `8080` to container port `8080`;/,

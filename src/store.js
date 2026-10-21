@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { matchVoicedTidbit } from './spoken.js';
 
@@ -152,6 +152,19 @@ function clone(value) {
   return structuredClone(value);
 }
 
+
+export async function stateFileReadable(filePath) {
+  try {
+    const info = await stat(filePath);
+    if (!info.isFile()) return { readable: false, reason: 'not-a-file' };
+    await readFile(filePath);
+    return { readable: true };
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { readable: true };
+    return { readable: false, reason: err?.code === 'EACCES' ? 'access-denied' : 'unreadable' };
+  }
+}
+
 export class GossipStore {
   constructor(filePath) {
     this.filePath = filePath;
@@ -193,6 +206,10 @@ export class GossipStore {
 
   snapshot() {
     return clone(this.state);
+  }
+
+  configuredPath() {
+    return this.filePath;
   }
 
   mutate(fn) {

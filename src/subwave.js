@@ -23,6 +23,45 @@ export function authorizationHeader({ apiUser = '', apiPassword = '', apiToken =
   return `Bearer ${token}`;
 }
 
+function abortError(signal) {
+  const reason = signal?.reason;
+  if (reason instanceof Error) return reason;
+  return Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+}
+
+function cancelResponseBody(res, signal) {
+  const cancel = res?.body?.cancel;
+  if (typeof cancel !== 'function') return;
+  Promise.resolve(cancel.call(res.body, signal?.reason)).catch(() => {});
+}
+
+function readJson(res, signal) {
+  if (!signal) return res.json();
+  if (signal.aborted) {
+    cancelResponseBody(res, signal);
+    return Promise.reject(abortError(signal));
+  }
+  const parsed = res.json();
+  parsed.catch(() => {});
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      cancelResponseBody(res, signal);
+      reject(abortError(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    parsed.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 export class SubwaveAdapter {
   constructor({ apiUrl, apiToken, apiUser, apiPassword, fetchImpl = fetch, log = console }) {
     this.apiUrl = apiUrl;
@@ -33,7 +72,7 @@ export class SubwaveAdapter {
     this.log = log;
   }
 
-  async request(pathname, { query } = {}) {
+  async request(pathname, { query, signal } = {}) {
     const authorization = authorizationHeader({
       apiUser: this.apiUser,
       apiPassword: this.apiPassword || this.apiToken,
@@ -53,17 +92,23 @@ export class SubwaveAdapter {
         Authorization: authorization,
         Accept: 'application/json',
       },
+      ...(signal ? { signal } : {}),
     });
+    if (signal?.aborted) {
+      cancelResponseBody(res, signal);
+      throw abortError(signal);
+    }
     if (!res.ok) {
+      cancelResponseBody(res, signal);
       const err = new Error(`Subwave API ${pathname} failed: HTTP ${res.status}`);
       err.status = res.status;
       throw err;
     }
-    return res.json();
+    return readJson(res, signal);
   }
 
-  async getSchedule() {
-    return this.request('/schedule');
+  async getSchedule({ signal } = {}) {
+    return this.request('/schedule', { signal });
   }
 
   async getSession() {
