@@ -170,3 +170,19 @@ test('spoken session events keep an explicit actor id', () => {
   assert.equal(events[0].show, 'Test Show');
   assert.equal(events[1].actorPersonaId, undefined);
 });
+
+test('session fallback keeps a known cursor and does not replay an unknown one', () => {
+  const session = {
+    messages: [
+      { id: 'e1', kind: 'gossip-spoken', text: 'first', meta: { spokenAt: '2026-09-19T10:00:00.000Z' } },
+      { id: 'e2', kind: 'gossip-spoken', text: 'second', meta: { spokenAt: '2026-09-19T11:00:00.000Z' } },
+    ],
+  };
+  const continued = eventsFromSession(session, 'e1');
+  assert.deepEqual(continued.events.map((event) => event.sourceEventId), ['e2']);
+  assert.equal(continued.cursorStatus, 'advanced');
+  const unknown = eventsFromSession(session, 'pruned');
+  assert.deepEqual(unknown.events, []);
+  assert.equal(unknown.cursor, 'e2');
+  assert.equal(unknown.cursorStatus, 'unknown');
+});

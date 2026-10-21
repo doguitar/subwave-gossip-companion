@@ -270,10 +270,11 @@ export function eventsFromSession(session, cursor) {
       ...(show ? { show } : {}),
     });
   }
-  if (!cursor) return { events, cursor: lastCursor(events) };
+  const tip = lastCursor(events);
+  if (!cursor) return { events, cursor: tip, cursorStatus: 'start' };
   const start = events.findIndex((e) => e.sourceEventId === cursor);
-  const sliced = start >= 0 ? events.slice(start + 1) : events;
-  return { events: sliced, cursor: lastCursor(events) };
+  if (start < 0) return { events: [], cursor: tip, cursorStatus: 'unknown' };
+  return { events: events.slice(start + 1), cursor: tip, cursorStatus: 'advanced' };
 }
 
 function lastCursor(events) {

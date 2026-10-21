@@ -26,7 +26,7 @@ test('ingest sets hearerPersonaIds to null and is idempotent', async () => {
   assert.equal(second.ingested, 0);
 
   const state = await read();
-  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision']);
+  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision', 'spokenEventCursor']);
   assert.deepEqual(state.gossipComments, []);
   assert.deepEqual(state.generatedGossipHistory, []);
   assert.equal(state.tidbits[0].hearerPersonaIds, null);
@@ -119,4 +119,78 @@ test('two ingest processes keep both actor comments', async () => {
   const disk = await read();
   assert.equal(disk.tidbits.every((item) => item.hearerPersonaIds === null), true);
   assert.deepEqual(disk.gossipComments.map((item) => item.tidbitId).sort(), ['booth', 'neon']);
+});
+
+test('ingest advances a persisted cursor and does not replay it after restart', async () => {
+  const events = [
+    { sourceEventId: 'e1', spokenText: 'Booth whisper', spokenAt: '2026-09-19T10:00:00.000Z', actorPersonaId: 'p_a', show: 'Test Show' },
+    { sourceEventId: 'e2', spokenText: 'Neon sign blinked a private code', spokenAt: '2026-09-19T11:00:00.000Z', actorPersonaId: 'p_b', show: 'Test Show' },
+  ];
+  const seen = [];
+  const adapter = {
+    async getSpokenEvents({ cursor } = {}) {
+      seen.push(cursor || '');
+      const start = events.findIndex((event) => event.sourceEventId === cursor);
+      const slice = cursor && start >= 0 ? events.slice(start + 1) : cursor ? [] : events;
+      return { events: slice, cursor: events.at(-1).sourceEventId, cursorStatus: cursor ? 'advanced' : 'start' };
+    },
+  };
+  const { store, read } = await tempStore({
+    tidbits: [
+      tidbit({ id: 'booth', text: 'Booth whisper', hearerPersonaIds: [PERSONA_B.id] }),
+      tidbit({ id: 'neon', text: 'Neon sign blinked a private code', hearerPersonaIds: [PERSONA_B.id] }),
+    ],
+  });
+  const log = { info() {}, warn() {} };
+  const first = await ingestSpoken({ store, adapter, log });
+  assert.equal(first.ingested, 2);
+  assert.equal((await read()).spokenEventCursor, 'e2');
+  const second = await ingestSpoken({ store, adapter, log });
+  assert.equal(second.ingested, 0);
+  assert.deepEqual(seen, ['', 'e2']);
+  assert.equal((await read()).gossipComments.length, 2);
+});
+
+test('ingest prefers tidbitId and skips ambiguous text without mutating', async () => {
+  const shared = 'word is the booth kettle whistled';
+  const { store, read } = await tempStore({
+    tidbits: [
+      tidbit({ id: 'left', text: shared, hearerPersonaIds: [PERSONA_B.id] }),
+      tidbit({ id: 'right', text: `${shared} twice`, hearerPersonaIds: [PERSONA_B.id] }),
+    ],
+  });
+  const warnings = [];
+  const exact = await ingestSpoken({
+    store,
+    adapter: stubAdapter({
+      events: [{ sourceEventId: 'id-1', tidbitId: 'right', spokenText: shared, spokenAt: '2026-09-19T10:00:00.000Z', actorPersonaId: 'p_a', show: 'Test Show' }],
+    }),
+    log: { info() {}, warn(line) { warnings.push(line); } },
+  });
+  assert.equal(exact.ingested, 1);
+  let state = await read();
+  assert.equal(state.tidbits[0].hearerPersonaIds.length, 1);
+  assert.equal(state.tidbits[1].hearerPersonaIds, null);
+  assert.equal(state.gossipComments[0].tidbitId, 'right');
+
+  const { store: ambiguousStore, read: readAmbiguous } = await tempStore({
+    tidbits: [
+      tidbit({ id: 'left', text: shared, hearerPersonaIds: [PERSONA_B.id] }),
+      tidbit({ id: 'right', text: shared, hearerPersonaIds: [PERSONA_B.id] }),
+    ],
+  });
+  const ambiguousWarnings = [];
+  const ambiguous = await ingestSpoken({
+    store: ambiguousStore,
+    adapter: stubAdapter({
+      events: [{ sourceEventId: 'text-1', spokenText: shared, spokenAt: '2026-09-19T10:00:00.000Z', actorPersonaId: 'p_a' }],
+    }),
+    log: { info() {}, warn(line) { ambiguousWarnings.push(line); } },
+  });
+  assert.equal(ambiguous.ingested, 0);
+  assert.equal(ambiguous.skipped, 1);
+  state = await readAmbiguous();
+  assert.equal(state.tidbits.every((item) => Array.isArray(item.hearerPersonaIds)), true);
+  assert.deepEqual(state.gossipComments, []);
+  assert.ok(ambiguousWarnings.some((line) => line.includes('ambiguous-text')));
 });

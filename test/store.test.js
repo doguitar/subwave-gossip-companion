@@ -20,7 +20,7 @@ import {
 import { acquireMutationLock, acquireServerOwnership } from '../src/workspaceLock.js';
 import { PERSONA_A, PERSONA_B, runGossipAction, tempStore, tidbit } from './helpers.js';
 
-const EMPTY_BOARD = { tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0 };
+const EMPTY_BOARD = { tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0, spokenEventCursor: '' };
 
 async function storeWithBytes(contents) {
   const dir = await mkdtemp(path.join(tmpdir(), 'gossip-'));
@@ -32,14 +32,14 @@ async function storeWithBytes(contents) {
 test('store loads reduced shape and persists a queued mutation atomically', async () => {
   const { store, read } = await tempStore();
   const snap = store.snapshot();
-  assert.deepEqual(Object.keys(snap), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision']);
+  assert.deepEqual(Object.keys(snap), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision', 'spokenEventCursor']);
   assert.deepEqual(snap.generatedGossipHistory, []);
   assert.deepEqual(snap.gossipComments, []);
   await store.mutate((s) => {
     s.tidbits.push(tidbit());
   });
   const disk = await read();
-  assert.deepEqual(Object.keys(disk), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision']);
+  assert.deepEqual(Object.keys(disk), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision', 'spokenEventCursor']);
   assert.equal(disk.tidbits.length, 1);
   assert.equal(currentTidbits(disk).length, 1);
   assert.equal(disk.tidbits[0].tellerPersonaId, PERSONA_A.id);
