@@ -5,7 +5,7 @@ function words(value) {
 }
 
 export function matchSpokenTidbit(items, spokenText) {
-  const text = String(spokenText || '');
+  const text = retellableRumor(String(spokenText || ''));
   if (!text || !items?.length) return null;
   const byText = items.filter((it) => {
     const rumor = retellableRumor(it.text);
@@ -18,7 +18,7 @@ export function matchSpokenTidbit(items, spokenText) {
 export function matchVoicedTidbit(items, spokenText) {
   const exact = matchSpokenTidbit(items, spokenText);
   if (exact) return exact;
-  const spokenWords = words(spokenText);
+  const spokenWords = words(retellableRumor(spokenText));
   if (spokenWords.length < 8) return null;
   const spokenSet = new Set(spokenWords);
   let best = null;

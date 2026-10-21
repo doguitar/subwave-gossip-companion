@@ -211,6 +211,12 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
     ]);
     const requestedShowPersonas = await adapter.getShowPersonas(show);
     const showPersonas = sessionShowPersonas.personas.length ? sessionShowPersonas.personas : requestedShowPersonas;
+    const outcomes = {};
+    let watch = null;
+    const onOutcome = (result) => {
+      watch = result;
+      outcomes[result.outcome] = (outcomes[result.outcome] || 0) + 1;
+    };
     let added = 0;
     let lines = 0;
     const onLines = async (spokenLines) => {
@@ -229,8 +235,9 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
       }
     };
     log.info?.(`[gossip] watching station-gossip and station-gossip-cohosted TTS after skill fetch show=${show}`);
-    await waitForStationGossipTts({ adapter, since, timeoutMs, intervalMs, onLines, log });
-    return { added, lines, timedOut: lines === 0 };
+    await waitForStationGossipTts({ adapter, since, timeoutMs, intervalMs, onLines, onOutcome, log });
+    log.info?.(`[gossip] follow-up watcher outcomes ${JSON.stringify(outcomes)}`);
+    return { added, lines, timedOut: watch?.outcome === 'timeout', watch, outcomes };
   }
 
   return {
