@@ -2,8 +2,10 @@ const SENSITIVE = /\b(ssn|social security|home address|passport|credit card)\b|\
 
 /** Pivot phrases that start a distinct second narrative beat (not stunt + immediate target reaction). */
 function hasSecondBeat(text) {
+  if (/^now\b/i.test(text)) return true;
   if (/\band (?:now|get this)\b/i.test(text)) return true;
   if (/\bget this[,:]/i.test(text)) return true;
+  if (/[,:;]\s*now\b/i.test(text)) return true;
   return false;
 }
 
@@ -33,6 +35,37 @@ export function validateRumor(rumor, { targets = [], minLength = 20, maxLength =
     if (target?.name && !text.toLowerCase().includes(String(target.name).toLowerCase())) {
       return { ok: false, reason: 'missing-target-name' };
     }
+  }
+  return { ok: true };
+}
+
+function normalizedName(persona) {
+  return String(persona?.name || '').trim().toLowerCase();
+}
+
+function mentionsName(text, name) {
+  return text.toLowerCase().includes(name);
+}
+
+export function validateReviewRumor(rumor, {
+  roles,
+  register,
+  minLength = 20,
+  maxLength = 240,
+} = {}) {
+  if (!roles?.teller || !Array.isArray(roles.hearers) || !Array.isArray(roles.targets) || !register) {
+    return { ok: false, reason: 'missing-canonical-roles' };
+  }
+  const excluded = new Set([normalizedName(roles.teller), ...roles.hearers.map(normalizedName)]);
+  const targets = roles.targets.filter((target) => target?.id && normalizedName(target) && !excluded.has(normalizedName(target)));
+  if (targets.length !== roles.targets.length) return { ok: false, reason: 'invalid-canonical-target' };
+
+  const check = validateRumor(rumor, { targets, minLength, maxLength });
+  if (!check.ok) return check;
+
+  const text = String(rumor).trim();
+  if (/^(?:i|we)\s+(?:walked|saw|heard|watched|caught|found)\b/i.test(text)) {
+    return { ok: false, reason: 'generic-eyewitness-pov' };
   }
   return { ok: true };
 }
