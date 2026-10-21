@@ -8,6 +8,8 @@ const DEFAULT_PORT = 8080;
 const DEFAULT_SEED_CAP = 5;
 const DEFAULT_GOSSIP_HISTORY_GENERATIONS = 7;
 const DEFAULT_GOSSIP_REVIEW_ROUNDS = 0;
+const DEFAULT_THREAD_MAX_TELLINGS = 3;
+const DEFAULT_THREAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -65,6 +67,14 @@ export function loadConfig(env = process.env) {
   const reviewRounds = Number(reviewRoundsRaw);
   if (!Number.isInteger(reviewRounds) || reviewRounds < 0 || reviewRounds > 5) {
     errors.push('GOSSIP_REVIEW_ROUNDS must be an integer 0-5');
+  }
+  const threadMaxTellings = Number(env.GOSSIP_THREAD_MAX_TELLINGS ?? String(DEFAULT_THREAD_MAX_TELLINGS));
+  if (!Number.isInteger(threadMaxTellings) || threadMaxTellings < 1 || threadMaxTellings > 100) {
+    errors.push('GOSSIP_THREAD_MAX_TELLINGS must be an integer 1-100');
+  }
+  const threadMaxAgeMs = Number(env.GOSSIP_THREAD_MAX_AGE_MS ?? String(DEFAULT_THREAD_MAX_AGE_MS));
+  if (!Number.isFinite(threadMaxAgeMs) || threadMaxAgeMs < 1) {
+    errors.push('GOSSIP_THREAD_MAX_AGE_MS must be a positive number');
   }
 
   const host = (env.GOSSIP_HOST || '0.0.0.0').trim();
@@ -139,6 +149,8 @@ export function loadConfig(env = process.env) {
     seedCap,
     gossipHistoryGenerations,
     reviewRounds: Number.isInteger(reviewRounds) ? reviewRounds : DEFAULT_GOSSIP_REVIEW_ROUNDS,
+    threadMaxTellings: Number.isInteger(threadMaxTellings) ? threadMaxTellings : DEFAULT_THREAD_MAX_TELLINGS,
+    threadMaxAgeMs: Number.isFinite(threadMaxAgeMs) && threadMaxAgeMs > 0 ? threadMaxAgeMs : DEFAULT_THREAD_MAX_AGE_MS,
     statePath,
     feedBaseUrl,
     timezone,

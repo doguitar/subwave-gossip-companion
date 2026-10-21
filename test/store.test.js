@@ -11,6 +11,7 @@ import {
   normalizeState,
   pruneGossipCommentsToTidbits,
   recordGossipComment,
+  recordTidbitTelling,
   tidbitsKnownBy,
 } from '../src/store.js';
 import { PERSONA_A, PERSONA_B, tempStore, tidbit } from './helpers.js';
@@ -42,6 +43,43 @@ test('legacy tidbits-only state normalizes to empty generatedGossipHistory', () 
   assert.equal(state.tidbits[0].text, 'legacy item');
   assert.equal(state.tidbits[0].id, legacyTidbitId({ text: 'legacy item', createdAt: '2026-09-19T00:00:00.000Z' }));
   assert.deepEqual(state.gossipComments, []);
+});
+
+test('legacy tidbits receive stable thread metadata and persisted tellings retire deterministically', async () => {
+  const { store, read } = await tempStore({
+    tidbits: [tidbit({ id: 'legacy', createdAt: '2026-09-19T00:00:00.000Z' })],
+  });
+  await store.mutate((state) => {
+    recordTidbitTelling(state, 'legacy', '2026-09-19T01:00:00.000Z');
+    recordTidbitTelling(state, 'legacy', '2026-09-19T02:00:00.000Z');
+  });
+  const disk = await read();
+  assert.equal(disk.tidbits[0].threadId, 'legacy');
+  assert.deepEqual(disk.tidbits[0].canonicalAnchors, { location: '', ownerPersonaId: '', props: [] });
+  assert.deepEqual(disk.tidbits[0].toldAt, ['2026-09-19T01:00:00.000Z', '2026-09-19T02:00:00.000Z']);
+  assert.deepEqual(
+    gossipForActor(disk, [PERSONA_A.id], '', 'Test', {
+      now: new Date('2026-09-19T03:00:00.000Z'),
+      policy: { maxTellings: 2 },
+    }),
+    [],
+  );
+});
+
+test('thread policy retires age-expired representatives while preserving an eligible rotation', () => {
+  const state = normalizeState({
+    tidbits: [
+      tidbit({ id: 'expired', threadId: 'expired', createdAt: '2026-09-19T00:00:00.000Z', hearerPersonaIds: null }),
+      tidbit({ id: 'fresh', threadId: 'fresh', createdAt: '2026-09-19T02:00:00.000Z', hearerPersonaIds: null }),
+    ],
+  });
+  assert.deepEqual(
+    gossipForActor(state, [PERSONA_A.id], '', 'Test', {
+      now: new Date('2026-09-19T03:00:00.000Z'),
+      policy: { maxAgeMs: 2 * 60 * 60 * 1000 },
+    }).map((item) => item.id),
+    ['fresh'],
+  );
 });
 
 test('appendGeneratedGossipHistory keeps only the newest batches across persist/reload', async () => {

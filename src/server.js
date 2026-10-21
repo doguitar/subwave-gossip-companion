@@ -46,6 +46,7 @@ export function createServer({
   pickRoles,
   summarizeSouls: summarizeSoulsHook,
   summarizeHouseRules: summarizeHouseRulesHook,
+  now = () => new Date(),
 }) {
   const generateFn = generate || ((args) => generateSeed({ config, log, ...args }));
   const generateReviewFn = (args) => generateReview({ config, log, ...args });
@@ -117,11 +118,15 @@ export function createServer({
       }
       const personas = await adapter.getShowPersonas(show);
       const actor = (url.searchParams.get('actor') || '').trim();
-      const known = personas.length
-        ? gossipForActor(store.snapshot(), personas.map((p) => p.id), actor, show)
+      const policy = {
+        maxTellings: config.threadMaxTellings,
+        maxAgeMs: config.threadMaxAgeMs,
+      };
+      const ordered = personas.length
+        ? gossipForActor(store.snapshot(), personas.map((p) => p.id), actor, show, { now: now(), policy })
         : [];
       const personaById = new Map(personas.map((p) => [p.id, p]));
-      const items = known.map((item) => {
+      const items = ordered.map((item) => {
         const persona = personaById.get(item.tellerPersonaId);
         const tellerName = persona && typeof persona.name === 'string' && persona.name.trim() && persona.name !== persona.id
           ? persona.name.trim()
