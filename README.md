@@ -67,7 +67,7 @@ With `actor`, the feed lists one item per rumor subject (escalation chains count
 
 Set `GOSSIP_FEED_BASE_URL` to the public URL the station skill uses to fetch gossip (see `.env.example`). When it is set, RSS channel and item `<link>` values use that base with the same `show` and optional `actor` query parameters as the request. When it is unset, links use the incoming request URL.
 
-Item text stays the plain rumor. Stable ids are the RSS GUIDs. When the teller is on the requested show, the item also includes an escaped `<gossipTeller>` display name. Hearer identities and persona ids are not emitted.
+Each item `<title>` and `<description>` contains the retellable rumor body. Stored corkboard attribution such as `Alice told Bob, "…"` remains in history but is removed from the feed body. Stable ids are the RSS GUIDs. When identities resolve on the requested show, the item includes escaped `<gossipTeller>` and comma-separated `<gossipHearers>` display names; persona ids are never emitted. Station-gossip skills consume the rumor body as `item.rumor`, with teller, optional hearers, GUID, and publication time as metadata.
 
 A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events with an actor id record one when the line matches a tidbit. After a non-empty gossip RSS response, the TTS follow-up runs whether or not the request included `actor` (`actor` only shapes feed rotation and exclusion). The follow-up resolves the speaker from a persona id or display name and records the same kind of comment on the source rumor and the on-air tidbit. Fetches alone do not mark a rumor as voiced. The store keeps the newest 1000 comments.
 

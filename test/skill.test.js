@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import runGossipSkill from '../skills/station-gossip/tool.mjs';
+import runCohostedGossipSkill from '../skills/station-gossip-cohosted/tool.mjs';
 
 test('skill is silent on empty or unavailable feeds', async () => {
   const empty = await runGossipSkill(
@@ -38,6 +39,7 @@ test('skill returns items without teller or spoken-id events', async () => {
   );
   assert.equal(result.available, true);
   assert.equal(result.items.length, 2);
+  assert.equal(result.items[0].rumor, 'Word is the cart skipped');
   assert.equal(result.items[0].text, 'Word is the cart skipped');
   assert.equal(result.events, undefined);
   assert.ok(!JSON.stringify(result).includes('tidbit_id'));
@@ -65,6 +67,7 @@ test('skill appends the encoded actor and keeps teller metadata', async () => {
   );
   assert.equal(result.available, true);
   assert.deepEqual(result.items[0], {
+    rumor: 'Alpha & Beta heard the cart skip twice',
     text: 'Alpha & Beta heard the cart skip twice',
     guid: 'rumor-1',
     pubDate: 'Sat, 19 Sep 2026 02:00:00 GMT',
@@ -92,6 +95,7 @@ test('skill uses the configured feed URL and does not invent a host', async () =
 
 test('skill instructions escalate the rumor in character and never narrate drift', async () => {
   const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
+  const cohostedSkill = await readFile(new URL('../skills/station-gossip-cohosted/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /Take the first item/);
   assert.match(skill, /Escalate/);
   assert.match(skill, /more salacious/);
@@ -100,6 +104,10 @@ test('skill instructions escalate the rumor in character and never narrate drift
   assert.match(skill, /talking about me/);
   assert.match(skill, /stay silent/);
   assert.match(skill, /only one you have/);
+  assert.match(skill, /item\.rumor/);
+  assert.match(skill, /never use your active persona's display name as a third-person subject/);
+  assert.match(cohostedSkill, /item\.rumor/);
+  assert.match(cohostedSkill, /never use an active persona's display name as a third-person subject/);
 
   const source = 'Alpha heard the cart skip twice behind the booth.';
   const spoken = 'Word on the overnight shift is the cart machine threw itself through the booth wall and took the transmitter with it.';
@@ -108,4 +116,21 @@ test('skill instructions escalate the rumor in character and never narrate drift
   assert.doesNotMatch(spoken, /chang|drift|version|mixed up|earlier|before/i);
   assert.match(spoken, /transmitter/);
   assert.doesNotMatch(spoken, /skip twice/);
+});
+
+test('cohosted skill exposes the same structured rumor contract', async () => {
+  const xml = '<rss version="2.0"><channel><item><guid>abc</guid><description>Cart rumor</description><gossipTeller>Alpha</gossipTeller><gossipHearers>Beta, Gamma</gossipHearers></item></channel></rss>';
+  const result = await runCohostedGossipSkill(
+    { show: 'Test Show' },
+    {},
+    { fetch: async () => ({ ok: true, text: async () => xml }) },
+    { feedUrl: 'http://companion.test' },
+  );
+  assert.deepEqual(result.items, [{
+    rumor: 'Cart rumor',
+    text: 'Cart rumor',
+    guid: 'abc',
+    teller: 'Alpha',
+    hearers: 'Beta, Gamma',
+  }]);
 });

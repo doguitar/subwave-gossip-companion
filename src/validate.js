@@ -13,6 +13,16 @@ export function parseToldShape(text) {
   return { tellerName: m[1].trim(), hearerName: (m[2] || '').trim(), rumor: m[3] };
 }
 
+export function retellableRumor(text) {
+  let rumor = String(text || '').trim();
+  let told = parseToldShape(rumor);
+  while (told && told.rumor.trim() !== rumor) {
+    rumor = told.rumor.trim();
+    told = parseToldShape(rumor);
+  }
+  return rumor;
+}
+
 export function validateRumor(rumor, { targets = [], minLength = 20, maxLength = 240 } = {}) {
   const text = String(rumor || '').trim();
   if (/^(?:string|text|rumor|example)$/i.test(text)) return { ok: false, reason: 'placeholder-text' };
