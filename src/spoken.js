@@ -4,15 +4,18 @@ function words(value) {
   return String(value || '').toLowerCase().match(/[a-z0-9']+/g) || [];
 }
 
-export function matchSpokenTidbit(items, spokenText) {
+export function matchSpokenTidbits(items, spokenText) {
   const text = retellableRumor(String(spokenText || ''));
-  if (!text || !items?.length) return null;
-  const byText = items.filter((it) => {
+  if (!text || !items?.length) return [];
+  return items.filter((it) => {
     const rumor = retellableRumor(it.text);
     return rumor && (text.includes(rumor) || rumor.includes(text));
   });
-  if (byText.length === 1) return byText[0];
-  return null;
+}
+
+export function matchSpokenTidbit(items, spokenText) {
+  const hits = matchSpokenTidbits(items, spokenText);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 export function matchVoicedTidbit(items, spokenText) {

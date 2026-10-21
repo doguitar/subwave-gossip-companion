@@ -7,7 +7,7 @@ import { acquireMutationLock } from './workspaceLock.js';
 const COMMENT_LIMIT = 1000;
 
 export function emptyState() {
-  return { tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0 };
+  return { tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0, spokenEventCursor: '' };
 }
 
 function normalizeHistoryBatch(raw) {
@@ -155,6 +155,7 @@ export function normalizeState(parsed) {
     generatedGossipHistory,
     gossipComments: gossipCommentsList,
     boardRevision: normalizeBoardRevision(parsed?.boardRevision),
+    spokenEventCursor: typeof parsed?.spokenEventCursor === 'string' ? parsed.spokenEventCursor : '',
   };
 }
 

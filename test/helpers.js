@@ -69,6 +69,7 @@ export async function tempStore(state) {
       if (state.gossipComments !== undefined) {
         s.gossipComments = state.gossipComments;
       }
+      if (state.spokenEventCursor !== undefined) s.spokenEventCursor = state.spokenEventCursor;
     });
   }
   return { store, filePath, read: () => readFile(filePath, 'utf8').then(JSON.parse) };
