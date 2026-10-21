@@ -19,7 +19,7 @@ import {
 } from '../src/callLog.js';
 import { loadConfig, requireConfig } from '../src/config.js';
 import { createLog, formatRumorForOperationalLog } from '../src/log.js';
-import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse, preflightProvider, soulSummaryUserPrompt, summarizeHouseRules, summarizePersonaSouls } from '../src/llm.js';
+import { LLM_OUTPUT_BUDGET, buildLlmRequest, extractJsonObject, generateReview, generateSeed, parseLlmResponse, preflightProvider, reviewOutputBudget, soulSummaryUserPrompt, summarizeHouseRules, summarizePersonaSouls } from '../src/llm.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { PERSONA_A, PERSONA_B } from './helpers.js';
 
@@ -319,6 +319,66 @@ test('buildLlmRequest covers openai, google, and anthropic', () => {
   assert.equal(anthropic.url, 'https://api.anthropic.com/v1/messages');
   assert.equal(anthropic.headers['x-api-key'], 'ant');
   assert.equal(anthropic.body.system, 'sys');
+});
+
+test('output budgets cover seed, summary, and review for every provider', () => {
+  const kinds = [
+    ['seed', LLM_OUTPUT_BUDGET.seed],
+    ['summary', LLM_OUTPUT_BUDGET.summary],
+    ['review', reviewOutputBudget(10)],
+  ];
+  assert.equal(LLM_OUTPUT_BUDGET.summary, 2000);
+  assert.equal(reviewOutputBudget(1), LLM_OUTPUT_BUDGET.seed);
+  assert.ok(reviewOutputBudget(10) > reviewOutputBudget(1));
+  assert.equal(reviewOutputBudget(50), reviewOutputBudget(80));
+  for (const provider of ['openai', 'google', 'anthropic']) {
+    for (const [, maxTokens] of kinds) {
+      const request = buildLlmRequest({
+        provider,
+        apiKey: 'k',
+        model: 'm',
+        openaiBaseUrl: 'https://api.openai.com/v1',
+        system: 'sys',
+        user: 'usr',
+        maxTokens,
+      });
+      const actual = provider === 'google' ? request.body.generationConfig.maxOutputTokens : request.body.max_tokens;
+      assert.equal(actual, maxTokens);
+    }
+  }
+});
+
+test('a truncated review response fails instead of returning partial JSON', async () => {
+  const config = {
+    llmProvider: 'anthropic',
+    llmApiKey: 'ant',
+    llmModel: 'claude-sonnet-4-5',
+    llmCallLogPath: '',
+  };
+  const bodies = {
+    anthropic: { stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"rumors":' }] },
+    openai: { choices: [{ finish_reason: 'length', message: { content: '{"rumors":' } }] },
+    google: { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"rumors":' }] } }] },
+  };
+  for (const provider of ['anthropic', 'openai', 'google']) {
+    await assert.rejects(
+      () => generateReview({
+        config: { ...config, llmProvider: provider, openaiBaseUrl: 'https://api.openai.com/v1' },
+        day: '2026-09-19',
+        tidbits: [{ id: 't1', text: 'Alpha told Beta, "word is Gamma hid a cart"' }, { id: 't2', text: 'Alpha told Beta, "word is Gamma hid a kettle"' }],
+        round: 1,
+        totalRounds: 1,
+        fetchImpl: async (_url, init) => {
+          const sent = JSON.parse(init.body);
+          const budget = provider === 'google' ? sent.generationConfig.maxOutputTokens : sent.max_tokens;
+          assert.equal(budget, reviewOutputBudget(2));
+          return { ok: true, status: 200, json: async () => bodies[provider] };
+        },
+        log: { info() {}, warn() {} },
+      }),
+      /LLM review output truncated/,
+    );
+  }
 });
 
 test('buildLlmRequest omits thinking fields when level is off', () => {

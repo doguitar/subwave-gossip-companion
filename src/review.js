@@ -72,6 +72,7 @@ export async function reviewGossipBatch({
   }
   let current = tidbits;
   let roundsCompleted = 0;
+  let failed = false;
   const outcomes = { accepted: 0, rejected: 0, stale: 0 };
   log.info?.(`[gossip] review starting tidbits=${current.length} rounds=${reviewRounds}`);
   for (let round = 1; round <= reviewRounds; round += 1) {
@@ -120,12 +121,13 @@ export async function reviewGossipBatch({
         }
         throw err;
       }
+      failed = true;
       log.warn?.(`[gossip] review round ${round} failed: ${err.message}`);
       break;
     }
   }
   log.info?.(`[gossip] review finished roundsCompleted=${roundsCompleted} accepted=${outcomes.accepted} rejected=${outcomes.rejected} stale=${outcomes.stale}`);
-  return { tidbits: current, roundsCompleted, ...outcomes };
+  return { tidbits: current, roundsCompleted, failed, ...outcomes };
 }
 
 export function reviewRumorsFromPayload(payload, tidbits) {

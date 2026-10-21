@@ -952,6 +952,28 @@ test('refresh review updates board text before history and comment pruning', asy
   assert.deepEqual(state.generatedGossipHistory.at(-1), [`Alpha said on air, "${revised}"`]);
 });
 
+test('a failed review is not reported as a completed review', async () => {
+  const { store } = await tempStore();
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    timezone: 'UTC',
+    reviewRounds: 1,
+    generate: async () => ({ rumor: 'unconfirmed the booth kettle whistled through the legal ID' }),
+    generateReview: async () => {
+      throw new Error('LLM review output truncated');
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(result.refreshed, 1);
+  assert.equal(result.review.failed, true);
+  assert.equal(result.review.roundsCompleted, 0);
+  assert.equal(result.review.accepted, 0);
+});
+
 test('review stops further rounds when generateReview throws', async () => {
   const { store, read } = await tempStore();
   let round = 0;
