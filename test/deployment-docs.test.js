@@ -70,7 +70,7 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
     unraidTemplate,
     /<Config Name="HTTP port" Target="8080" Default="8080"[^>]*>8080<\/Config>/,
   );
-  assert.match(unraidTemplate, /<Repository>ghcr\.io\/doguitar\/subwave-gossip-companion:1\.0\.0<\/Repository>/);
+  assert.match(unraidTemplate, /<Repository>ghcr\.io\/doguitar\/subwave-gossip-companion:v1\.0\.0<\/Repository>/);
   assert.match(unraidTemplate, /floating tag latest/);
   assert.match(unraidTemplate, /<Icon>https:\/\/github\.com\/doguitar\.png<\/Icon>/);
   assert.doesNotMatch(unraidTemplate, /icon\.png/);
@@ -199,6 +199,23 @@ test('backup guidance names workspace files, corrupt restore, and image tags', a
   ]) {
     assert.match(backup, new RegExp(phrase.replaceAll(/[./]/g, '\\$&')));
   }
+});
+
+test('changelog is the operator release note and is linked from upgrade docs', async () => {
+  const [changelog, readme, backup, checklist, template] = await Promise.all([
+    readArtifact('CHANGELOG.md'),
+    readArtifact('README.md'),
+    readArtifact('docs/backup.md'),
+    readArtifact('.github/PULL_REQUEST_TEMPLATE.md'),
+    readArtifact('unraid/my-subwave-gossip-companion.xml'),
+  ]);
+  assert.match(changelog, /## v1\.0\.0/);
+  assert.match(changelog, /workspace/i);
+  assert.match(changelog, /vX\.Y\.Z/);
+  assert.match(readme, /CHANGELOG\.md/);
+  assert.match(backup, /CHANGELOG\.md/);
+  assert.match(template, /CHANGELOG\.md/);
+  assert.match(checklist, /CHANGELOG\.md/);
 });
 
 test('operator README documents corrupt state refusal and manual restore', async () => {

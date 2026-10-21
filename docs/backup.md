@@ -24,4 +24,4 @@ If startup exits non-zero because the state file is not valid JSON, the process 
 
 ## Image tags
 
-Run a version tag such as `ghcr.io/<owner>/subwave-gossip-companion:1.2.3`, not `latest` and not the moving `main` image, for anything you need to roll back. Publish notes for a release should say whether the workspace files above must be restored, edited, or left alone. The image does not apply a separate migration tool; the backup from the previous tag is the rollback.
+Run a version tag such as `ghcr.io/<owner>/subwave-gossip-companion:v1.0.0`, not `latest` and not the moving `main` image, for anything you need to roll back. The tag matches a heading in [CHANGELOG.md](../CHANGELOG.md). Read that section before changing the Unraid repository field. It says whether state, the live prompt, or the catalog must be restored, edited, or left alone. The image does not apply a separate migration tool; the backup from the previous tag is the rollback.

@@ -1,13 +1,13 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>subwave-gossip-companion</Name>
-  <Repository>ghcr.io/doguitar/subwave-gossip-companion:1.0.0</Repository>
+  <Repository>ghcr.io/doguitar/subwave-gossip-companion:v1.0.0</Repository>
   <Registry>https://ghcr.io/</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <Support>https://github.com/doguitar/subwave-gossip-companion</Support>
   <Project>https://github.com/doguitar/subwave-gossip-companion</Project>
-  <Overview>Persona-aware fictional gossip companion for SUB/WAVE. Serves /gossip.rss?show=&amp;actor= so each speaking character gets show-known rumors, skips the rumor they most recently voiced, and receives a gossipTeller name when that teller is on the show. Spoken events and TTS follow-ups record comments. Persistent state, prompt, and LLM call logs are stored below the workspace path. The repository field pins image tag 1.0.0 so an upgrade is a deliberate edit. The floating tag latest follows main and is not a rollback point. GOSSIP_FEED_BASE_URL must be a URL the Subwave host can fetch, for example http://192.168.1.20:8080 on the LAN or http://subwave-gossip-companion:8080 on a shared Docker network. Do not leave it as the container loopback. Set Extra Parameters to --stop-timeout=15 because the default 10 second Docker stop grace is shorter than the 5000 ms shutdown deadline plus the state lock wait.</Overview>
+  <Overview>Persona-aware fictional gossip companion for SUB/WAVE. Serves /gossip.rss?show=&amp;actor= so each speaking character gets show-known rumors, skips the rumor they most recently voiced, and receives a gossipTeller name when that teller is on the show. Spoken events and TTS follow-ups record comments. Persistent state, prompt, and LLM call logs are stored below the workspace path. The repository field pins image tag v1.0.0 so an upgrade is a deliberate edit. Read CHANGELOG.md before changing it. The floating tag latest follows main and is not a rollback point. GOSSIP_FEED_BASE_URL must be a URL the Subwave host can fetch, for example http://192.168.1.20:8080 on the LAN or http://subwave-gossip-companion:8080 on a shared Docker network. Do not leave it as the container loopback. Set Extra Parameters to --stop-timeout=15 because the default 10 second Docker stop grace is shorter than the 5000 ms shutdown deadline plus the state lock wait.</Overview>
   <Category>MediaServer:Audio</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <Icon>https://github.com/doguitar.png</Icon>
