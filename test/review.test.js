@@ -48,6 +48,21 @@ test('review rejects generic eyewitness and now-aftermath revisions but allows a
   assert.equal(result.tidbits[0].text, `Alpha told Beta, "${accepted}"`);
 });
 
+test('review rejects sensitive revisions and keeps the stored rumor', () => {
+  const tidbit = candidate();
+  const metadata = new Map([[tidbit.id, { roles, register }]]);
+  for (const rumor of [
+    'Gamma mailed the booth note to gamma@example.com before air',
+    'Gamma called the booth from 415-555-0199 before air',
+    'Gamma wrote 123-45-6789 on the booth form before air',
+  ]) {
+    const result = applyReviewRevisions([tidbit], new Map([[tidbit.id, rumor]]), metadata);
+    assert.equal(result.rejected, 1);
+    assert.equal(result.accepted, 0);
+    assert.equal(result.tidbits[0].text, tidbit.text);
+  }
+});
+
 test('review requires whole canonical target names and rejects self-target metadata', () => {
   const tidbit = candidate();
   const metadata = new Map([[tidbit.id, { roles, register }]]);

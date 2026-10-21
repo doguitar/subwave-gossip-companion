@@ -164,6 +164,32 @@ test('refresh retries rejected model output before failing', async () => {
   assert.deepEqual(registers, [fixedRegister, fixedRegister]);
 });
 
+test('seed refuses sensitive rumors and does not store them', async () => {
+  const rumors = [
+    'Gamma mailed the booth note to gamma@example.com before air',
+    'Gamma called the booth from 415-555-0199 before air',
+    'Gamma wrote 123-45-6789 on the booth form before air',
+  ];
+  for (const rumor of rumors) {
+    const { store } = await tempStore();
+    const reasons = [];
+    const result = await seedGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      pickRoles: () => hallway,
+      cap: 1,
+      historyGenerations: 0,
+      timezone: 'UTC',
+      generate: async () => ({ rumor }),
+      log: { info() {}, warn(line) { reasons.push(line); } },
+    });
+    assert.equal(result.seeded, 0);
+    assert.equal(result.rejected, 1);
+    assert.equal(store.snapshot().tidbits.length, 0);
+    assert.equal(reasons.filter((line) => line.includes('sensitive')).length, 3);
+  }
+});
+
 test('seed never pairs constrained registers with mismatched rumor-target counts', async () => {
   const { store } = await tempStore();
   const rumorRegisters = [

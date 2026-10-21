@@ -15,6 +15,16 @@ test('validateRumor rejects a second and-now beat and overlong text', () => {
   assert.deepEqual(validateRumor(longRumor), { ok: false, reason: 'too-long' });
 });
 
+test('validateRumor rejects email, phone, and SSN-like text', () => {
+  for (const rumor of [
+    'Gamma mailed the booth note to gamma@example.com before air',
+    'Gamma called the booth from 415-555-0199 before air',
+    'Gamma wrote 123-45-6789 on the booth form before air',
+  ]) {
+    assert.deepEqual(validateRumor(rumor, { targets: [{ name: 'Gamma' }] }), { ok: false, reason: 'sensitive' });
+  }
+});
+
 test('validateRumor rejects schema placeholder text', () => {
   assert.deepEqual(validateRumor('string'), { ok: false, reason: 'placeholder-text' });
 });
