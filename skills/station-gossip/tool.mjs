@@ -75,10 +75,12 @@ function parseRssItems(xml) {
     const guid = matchTag(block, 'guid');
     const pubDate = matchTag(block, 'pubDate');
     const teller = unescapeXml(matchTag(block, 'gossipTeller'));
-    const item = { text: description };
+    const hearers = unescapeXml(matchTag(block, 'gossipHearers'));
+    const item = { rumor: description, text: description };
     if (guid) item.guid = guid;
     if (pubDate) item.pubDate = pubDate;
     if (teller) item.teller = teller;
+    if (hearers) item.hearers = hearers;
     items.push(item);
   }
   return items;

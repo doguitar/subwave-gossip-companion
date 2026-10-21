@@ -19,7 +19,7 @@ after(() => {
   for (const s of servers) s.close();
 });
 
-test('RSS includes known and broadcast-null items, excludes unknown, omits relationships', async () => {
+test('RSS includes known and broadcast-null items, excludes unknown, and emits display-name relationships', async () => {
   const { store } = await tempStore({
     tidbits: [
       tidbit({ text: 'A only', tellerPersonaId: PERSONA_A.id, createdAt: '2026-09-19T02:00:00.000Z' }),
@@ -46,6 +46,7 @@ test('RSS includes known and broadcast-null items, excludes unknown, omits relat
   assert.match(xml, /<link>http:\/\/127\.0\.0\.1:\d+\/gossip\.rss\?show=Test%20Show<\/link>/);
   assert.doesNotMatch(xml, /tellerPersonaId|hearerPersonaIds/);
   assert.doesNotMatch(xml, />p_a<|>p_b</);
+  assert.match(xml, /<gossipHearers>Beta<\/gossipHearers>/);
   const titles = [...xml.matchAll(/<item>[\s\S]*?<title>([^<]+)<\/title>/g)].map((m) => m[1]);
   assert.deepEqual(titles, ['Broadcast item', 'B only', 'A only']);
 });
@@ -240,12 +241,12 @@ test('empty RSS feed does not start TTS follow-up', async () => {
   assert.equal(followCalls, 0);
 });
 
-test('actor RSS keeps text, guid, date, and escaped teller metadata', async () => {
+test('actor RSS separates told-shape rumor from escaped teller and hearer metadata', async () => {
   const { store } = await tempStore({
     tidbits: [
       tidbit({
         id: 'rumor-1',
-        text: 'Alpha & Beta <heard> "news"',
+        text: 'Alpha told Beta, "Alpha & Beta <heard> "news""',
         tellerPersonaId: PERSONA_A.id,
         hearerPersonaIds: [PERSONA_B.id],
         createdAt: '2026-09-19T02:00:00.000Z',
@@ -256,11 +257,13 @@ test('actor RSS keeps text, guid, date, and escaped teller metadata', async () =
   const res = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}&actor=persona-a`);
   assert.equal(res.status, 200);
   const xml = await res.text();
-  assert.match(xml, /Alpha &amp; Beta &lt;heard&gt; &quot;news&quot;/);
+  assert.match(xml, /<description>Alpha &amp; Beta &lt;heard&gt; &quot;news&quot;<\/description>/);
+  assert.doesNotMatch(xml, /Alpha told Beta/);
   assert.match(xml, /<guid isPermaLink="false">rumor-1<\/guid>/);
   assert.match(xml, /<pubDate>[^<]+<\/pubDate>/);
   assert.match(xml, /<gossipTeller>Alpha<\/gossipTeller>/);
-  assert.doesNotMatch(xml, /hearer|p_a|p_b|PERSONA/);
+  assert.match(xml, /<gossipHearers>Beta<\/gossipHearers>/);
+  assert.doesNotMatch(xml, /p_a|p_b|PERSONA/);
 });
 
 test('feedBaseUrl self-link includes show and actor query params', async () => {

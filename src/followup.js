@@ -3,6 +3,7 @@ import { listLlmCallLogSegments } from './callLog.js';
 import { currentTidbits, legacyTidbitId, recordGossipComment, tidbitKey } from './store.js';
 import { matchVoicedTidbit } from './spoken.js';
 import { waitForStationGossipTts } from './ttsWatch.js';
+import { retellableRumor } from './validate.js';
 
 function responseStrings(value, out = []) {
   if (typeof value === 'string') out.push(value.replace(/\s+/g, ' ').trim());
@@ -63,7 +64,7 @@ export function speakerFromSession(session, spoken) {
 }
 
 export function formatOnAirTidbit(spoken, roster = [], showPersonas = [], session = null) {
-  const gossip = String(spoken?.text || '').replace(/\s+/g, ' ').trim();
+  const gossip = retellableRumor(String(spoken?.text || '').replace(/\s+/g, ' ').trim());
   if (!gossip) return null;
 
   const rosterById = new Map((roster || []).map((p) => [p.id, p]));
@@ -142,7 +143,7 @@ export async function appendGeneratedGossip({
     }
     const sameGossip = existing.find((t) => {
       const quoted = t.text?.match(/ said on air, "([\s\S]*)"$/);
-      return quoted && quoted[1] === String(spoken?.text || '').replace(/\s+/g, ' ').trim();
+      return quoted && retellableRumor(quoted[1]) === retellableRumor(String(spoken?.text || '').replace(/\s+/g, ' ').trim());
     });
     if (sameGossip) {
       sameGossip.text = item.text;
@@ -167,7 +168,7 @@ function attributeVoicedTidbits(state, item, spoken, session, log) {
   const targets = new Map();
   const source = matchVoicedTidbit(
     currentTidbits(state).filter((tidbit) => tidbit.id !== item.id),
-    spoken?.text,
+    retellableRumor(spoken?.text),
   );
   if (source?.id) targets.set(source.id, source);
   if (item.id) targets.set(item.id, item);

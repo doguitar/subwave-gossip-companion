@@ -126,7 +126,14 @@ export function createServer({
         const tellerName = persona && typeof persona.name === 'string' && persona.name.trim() && persona.name !== persona.id
           ? persona.name.trim()
           : '';
-        return tellerName ? { ...item, tellerName } : item;
+        const hearerNames = (item.hearerPersonaIds || [])
+          .map((id) => personaById.get(id))
+          .map((hearer) => (typeof hearer?.name === 'string' && hearer.name.trim() && hearer.name !== hearer.id
+            ? hearer.name.trim()
+            : ''))
+          .filter(Boolean)
+          .join(', ');
+        return { ...item, ...(tellerName ? { tellerName } : {}), ...(hearerNames ? { hearerNames } : {}) };
       });
       if (!personas.length) {
         log.warn?.(`[gossip] empty RSS for show=${show} (no personas)`);

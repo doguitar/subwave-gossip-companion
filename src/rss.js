@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { retellableRumor } from './validate.js';
 
 export const FEED_TITLE = 'Station Gossip';
 
@@ -26,14 +27,16 @@ export function buildRss({ items, title = FEED_TITLE, link = '' }) {
   const itemXml = items
     .map((item) => {
       const itemLink = item.link || link;
+      const rumor = retellableRumor(item.text);
       return [
         '    <item>',
-        `      <title>${escapeXml(item.text)}</title>`,
-        `      <description>${escapeXml(item.text)}</description>`,
+        `      <title>${escapeXml(rumor)}</title>`,
+        `      <description>${escapeXml(rumor)}</description>`,
         itemLink ? `      <link>${escapeXml(itemLink)}</link>` : null,
         `      <guid isPermaLink="false">${escapeXml(itemGuid(item))}</guid>`,
         `      <pubDate>${escapeXml(toRfc822(item.createdAt))}</pubDate>`,
         item.tellerName ? `      <gossipTeller>${escapeXml(item.tellerName)}</gossipTeller>` : null,
+        item.hearerNames ? `      <gossipHearers>${escapeXml(item.hearerNames)}</gossipHearers>` : null,
         '    </item>',
       ].filter(Boolean).join('\n');
     })

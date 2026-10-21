@@ -1,3 +1,5 @@
+import { retellableRumor } from './validate.js';
+
 function words(value) {
   return String(value || '').toLowerCase().match(/[a-z0-9']+/g) || [];
 }
@@ -5,7 +7,10 @@ function words(value) {
 export function matchSpokenTidbit(items, spokenText) {
   const text = String(spokenText || '');
   if (!text || !items?.length) return null;
-  const byText = items.filter((it) => it.text && (text.includes(it.text) || it.text.includes(text)));
+  const byText = items.filter((it) => {
+    const rumor = retellableRumor(it.text);
+    return rumor && (text.includes(rumor) || rumor.includes(text));
+  });
   if (byText.length === 1) return byText[0];
   return null;
 }
@@ -20,7 +25,7 @@ export function matchVoicedTidbit(items, spokenText) {
   let bestScore = 0;
   let tied = false;
   for (const item of items || []) {
-    const itemWords = words(item?.text);
+    const itemWords = words(retellableRumor(item?.text));
     if (itemWords.length < 8) continue;
     const shared = itemWords.filter((word) => spokenSet.has(word)).length;
     const score = shared / Math.min(itemWords.length, spokenWords.length);

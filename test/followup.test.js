@@ -310,3 +310,12 @@ test('formatOnAirTidbit uses last session speaker when TTS meta has no persona',
     'Reed Silver said on air, "Word is someone left a little surprise in the urinal. Totally bogus, man."',
   );
 });
+
+test('formatOnAirTidbit unwraps nested corkboard attribution before persistence', () => {
+  const item = formatOnAirTidbit({
+    kind: 'station-gossip',
+    text: 'Alice said on air, "Alice told Bob, "I saw Carol leave with the transmitter.""',
+    meta: { personaId: PERSONA_A.id, personaName: PERSONA_A.name },
+  }, [PERSONA_A, PERSONA_B], [PERSONA_A]);
+  assert.equal(item.text, 'Alpha said on air, "I saw Carol leave with the transmitter."');
+});
