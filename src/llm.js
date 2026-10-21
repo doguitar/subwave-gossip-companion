@@ -196,13 +196,28 @@ function openaiReasoningEffort(thinkingLevel) {
   return value;
 }
 
-export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system, user, thinkingLevel }) {
+export const LLM_OUTPUT_BUDGET = {
+  seed: 512,
+  summary: 2000,
+};
+
+const REVIEW_BATCH_LIMIT = 50;
+const REVIEW_OUTPUT_CAP = 8192;
+
+export function reviewOutputBudget(tidbitCount) {
+  const count = Math.min(REVIEW_BATCH_LIMIT, Math.max(1, Math.trunc(Number(tidbitCount) || 1)));
+  return Math.min(REVIEW_OUTPUT_CAP, LLM_OUTPUT_BUDGET.seed + (count - 1) * 400);
+}
+
+export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system, user, thinkingLevel, maxTokens = LLM_OUTPUT_BUDGET.seed }) {
   const thinking = normalizedThinkingLevel(thinkingLevel);
+  const outputBudget = Math.max(1, Math.trunc(Number(maxTokens) || LLM_OUTPUT_BUDGET.seed));
 
   if (provider === 'google') {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
     const generationConfig = {
       temperature: 0.9,
+      maxOutputTokens: outputBudget,
       responseMimeType: 'application/json',
       ...(thinking ? { thinkingConfig: { thinkingLevel: thinking } } : {}),
     };
@@ -231,7 +246,7 @@ export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system
         'anthropic-version': '2023-06-01',
       },
       body: {
-        max_tokens: 512,
+        max_tokens: outputBudget,
         temperature: 0.9,
         system,
         messages: [{ role: 'user', content: user }],
@@ -248,6 +263,7 @@ export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system
   const official = /api\.openai\.com/i.test(String(openaiBaseUrl || ''));
   const openaiBody = {
     model,
+    max_tokens: outputBudget,
     temperature: 0.9,
     ...(official ? { response_format: { type: 'json_object' } } : {}),
     messages: [
@@ -334,6 +350,12 @@ async function recordLlmCall(config, record) {
   await appendLlmCall(config.llmCallLogPath, shaped);
 }
 
+function outputTruncated(provider, data) {
+  if (provider === 'anthropic') return data?.stop_reason === 'max_tokens';
+  if (provider === 'google') return data?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
+  return data?.choices?.[0]?.finish_reason === 'length';
+}
+
 function throwIfLlmAborted(signal) {
   if (!signal?.aborted) return;
   const shutdown = signal.reason === 'shutdown' || signal.reason?.reason === 'shutdown';
@@ -377,6 +399,9 @@ async function invokeLlm({ config, kind, provider, model, request, fetchImpl, li
   let data;
   try {
     data = await res.json();
+    if (kind === 'review' && outputTruncated(provider, data)) {
+      throw new Error('LLM review output truncated');
+    }
     const payload = parseLlmResponse(provider, data);
     await recordLlmCall(config, {
       ...base, stage: 'success', elapsedMs: Date.now() - startedAt, status: res.status,
@@ -451,8 +476,8 @@ export async function summarizePersonaSouls({
       system: SOUL_SUMMARY_SYSTEM,
       user: soulSummaryUserPrompt(persona),
       thinkingLevel: config.llmThinkingLevel,
+      maxTokens: LLM_OUTPUT_BUDGET.summary,
     });
-    if (request.body && provider === 'openai') request.body.max_tokens = 2000;
     const payload = await invokeLlm({
       config, kind: 'soul-summary', provider, model, request, fetchImpl,
       lifecycleId: `soul-summary:${persona?.id || persona?.name || randomUUID()}`,
@@ -491,8 +516,8 @@ export async function summarizeHouseRules({
     system: HOUSE_RULES_SUMMARY_SYSTEM,
     user: houseRulesSummaryUserPrompt(text),
     thinkingLevel: config.llmThinkingLevel,
+    maxTokens: LLM_OUTPUT_BUDGET.summary,
   });
-  if (request.body && provider === 'openai') request.body.max_tokens = 2000;
   throwIfLlmAborted(signal);
   const payload = await invokeLlm({
     config, kind: 'house-rules-summary', provider, model, request, fetchImpl,
@@ -547,6 +572,7 @@ export async function generateSeed({
     system: systemPrompt,
     user,
     thinkingLevel: config.llmThinkingLevel,
+    maxTokens: LLM_OUTPUT_BUDGET.seed,
   });
   throwIfLlmAborted(signal);
   return invokeLlm({
@@ -596,6 +622,7 @@ export async function generateReview({
     system: systemPrompt,
     user,
     thinkingLevel: config.llmThinkingLevel,
+    maxTokens: reviewOutputBudget(tidbits?.length),
   });
   throwIfLlmAborted(signal);
   return invokeLlm({
