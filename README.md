@@ -89,16 +89,10 @@ For a deployed instance, call the HTTP endpoint with `POST`. The request body is
 curl -i -X POST http://127.0.0.1:8080/gossip/refresh
 ```
 
-If Docker maps host port `8095` to container port `8080`, use the host port:
-
-```bash
-curl -i -X POST http://127.0.0.1:8095/gossip/refresh
-```
-
 The same endpoint is available at `/refresh`:
 
 ```bash
-curl -i -X POST http://127.0.0.1:8095/refresh
+curl -i -X POST http://127.0.0.1:8080/refresh
 ```
 
 The response is JSON containing the generated tidbits and generation status. Refresh requires the configured Subwave credentials and LLM provider settings.
@@ -109,11 +103,13 @@ The image keeps application code in `/app` and runtime configuration/state in `/
 
 ```bash
 docker build -t subwave-gossip-companion .
-docker run --rm -p 8787:8787 \
+docker run --rm -p 8787:8080 \
   --env-file /path/to/gossip.env \
   -v /path/to/gossip-workspace:/workspace \
   subwave-gossip-companion
 ```
+
+This publishes host port `8787` to the image's container port `8080`; use `http://127.0.0.1:8787` for feed and refresh requests. The container listens on `8080`.
 
 Put `prompt.md` and `gossip-types.json` in the mounted workspace, or set `GOSSIP_TYPES_PATH` to another path under the mount. The entrypoint refreshes `prompt.md.default` on every start and seeds `prompt.md` when it is missing or empty; the Node process applies the same rules for non-Docker runs. It sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, operator prompt/types files, the operational log, and the LLM call log.
 
@@ -134,4 +130,4 @@ curl -fsSL https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/m
   -o /boot/config/plugins/dockerMan/templates-user/my-subwave-gossip-companion.xml
 ```
 
-Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials, and apply. The default host/container port is `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`.
+Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials, and apply. The template maps host port `8080` to container port `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`.
