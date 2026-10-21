@@ -748,6 +748,24 @@ test('generateSeed records correlated, redacted terminal failures', async () => 
   assert.equal(JSON.stringify(records).includes('sk-secret'), false);
 });
 
+test('generateSeed exposes Retry-After on a 429', async () => {
+  const roles = { teller: PERSONA_A, hearers: [PERSONA_B], targets: [] };
+  const register = RUMOR_REGISTERS.find((r) => r.id === 'deadpan-absurdity');
+  await assert.rejects(
+    generateSeed({
+      config: { llmProvider: 'openai', llmApiKey: 'sk-test', llmModel: 'm', openaiBaseUrl: 'https://llm.example/v1', llmCallLogPath: '' },
+      day: '2026-09-19', roles, register,
+      fetchImpl: async () => ({
+        ok: false,
+        status: 429,
+        headers: { get: (name) => (name === 'retry-after' ? '2' : null) },
+        text: async () => 'slow down',
+      }),
+    }),
+    (err) => err.status === 429 && err.retryAfterMs === 2000,
+  );
+});
+
 test('generateSeed records thrown transport failures', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-'));
   const logPath = path.join(dir, 'llm-calls.jsonl');
