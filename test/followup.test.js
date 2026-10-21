@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { waitForStationGossipTts, findStationGossipTts } from '../src/ttsWatch.js';
 import { appendGeneratedGossip, createFollowupWatcher, formatOnAirTidbit, recoverFullSpokenText } from '../src/followup.js';
-import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore } from './helpers.js';
+import { PERSONA_A, PERSONA_B, PERSONA_C, runGossipAction, stubAdapter, tempStore } from './helpers.js';
 test('afterSkillFetch starts a new watch for each call even when another is in flight', async () => {
   const { store } = await tempStore();
   const watchStarts = [];
@@ -206,7 +206,7 @@ test('appendGeneratedGossip stores on-air text with null hearers and is idempote
   });
   assert.equal(second.skipped, true);
   const state = await read();
-  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory', 'gossipComments']);
+  assert.deepEqual(Object.keys(state), ['tidbits', 'generatedGossipHistory', 'gossipComments', 'boardRevision']);
   assert.deepEqual(state.generatedGossipHistory, []);
   assert.equal(state.tidbits.length, 1);
   assert.equal(
@@ -419,4 +419,37 @@ test('cohosted explicit speaker wins when session metadata is sparse', () => {
     meta: { personaId: PERSONA_B.id, personaName: PERSONA_B.name },
   }, [PERSONA_A, PERSONA_B], [PERSONA_A], { messages: [] });
   assert.equal(item.tellerPersonaId, PERSONA_B.id);
+});
+
+test('two follow-up processes keep both on-air tidbits, comments, and tellings', async () => {
+  const { filePath, read } = await tempStore();
+  const barrier = await mkdtemp(path.join(tmpdir(), 'gossip-barrier-'));
+  const firstText = 'Shoots, word is da cart machine hiccuped twice last night.';
+  const secondText = 'Shoots, word is da neon sign blinked a secret code at midnight.';
+  const [first, second] = await Promise.all([
+    runGossipAction('follow-up', {
+      STATE_PATH: filePath,
+      SPOKEN_TEXT: firstText,
+      AIRED_AT: '2026-09-19T16:24:49.600Z',
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'a',
+      BARRIER_PEERS: 'a,b',
+    }),
+    runGossipAction('follow-up', {
+      STATE_PATH: filePath,
+      SPOKEN_TEXT: secondText,
+      AIRED_AT: '2026-09-19T16:30:00.000Z',
+      BARRIER_DIR: barrier,
+      BARRIER_NAME: 'b',
+      BARRIER_PEERS: 'a,b',
+    }),
+  ]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  const disk = await read();
+  assert.equal(disk.tidbits.length, 2);
+  assert.equal(disk.tidbits.every((item) => item.toldAt.length === 1), true);
+  assert.equal(disk.gossipComments.length, 2);
+  assert.equal(disk.tidbits.some((item) => item.text.includes(firstText)), true);
+  assert.equal(disk.tidbits.some((item) => item.text.includes(secondText)), true);
 });

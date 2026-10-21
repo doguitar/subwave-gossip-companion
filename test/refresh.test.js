@@ -4,6 +4,7 @@ import { after, test } from 'node:test';
 import net from 'node:net';
 import { createServer } from '../src/server.js';
 import { parseRssItems } from '../src/rss.js';
+import { acquireMutationLock } from '../src/workspaceLock.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, stubAdapter, tempStore, tidbit } from './helpers.js';
 
 const servers = [];
@@ -370,5 +371,40 @@ test('refresh routes return the store JSON error when the state file is corrupt'
     assert.equal(body.refreshed, undefined);
     assert.equal(generations, 0);
     assert.equal(await readFile(filePath, 'utf8'), corrupt);
+  }
+});
+
+test('HTTP refresh returns an error and does not persist when the state lock is held', async () => {
+  const { store, filePath, read } = await tempStore({
+    tidbits: [tidbit({ id: 'kept', text: 'kept rumor', hearerPersonaIds: null })],
+  });
+  const before = await readFile(filePath, 'utf8');
+  const release = await acquireMutationLock(filePath);
+  try {
+    let generations = 0;
+    const base = await start(
+      store,
+      stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      async () => {
+        generations += 1;
+        return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+      },
+      () => ({ teller: PERSONA_A, hearers: [], targets: [] }),
+    );
+    const res = await fetch(`${base}/gossip/refresh`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    assert.ok(res.status >= 400);
+    const body = await res.json();
+    assert.match(body.error, /could not be locked for an exclusive update/);
+    assert.equal(body.error.includes(filePath), true);
+    assert.equal(body.tidbits, undefined);
+    assert.equal(generations, 0);
+    assert.equal(await readFile(filePath, 'utf8'), before);
+    assert.equal((await read()).tidbits[0].id, 'kept');
+  } finally {
+    release();
   }
 });

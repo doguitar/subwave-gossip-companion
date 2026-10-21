@@ -91,7 +91,7 @@ A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events 
 
 ### Refreshing gossip
 
-The CLI refresh replaces the current board with a new linked set of tidbits. On a successful refresh, gossip comments whose `tidbitId` is not on the new board are removed; a failed refresh leaves comments unchanged. Within one companion process, overlapping seed and refresh requests wait in FIFO order for the earlier generation and review cycle to finish. This can make a CLI or HTTP request wait for an earlier operation; separate companion processes are not coordinated.
+The CLI refresh replaces the current board with a new linked set of tidbits. On a successful refresh, gossip comments whose `tidbitId` is not on the new board are removed; a failed refresh leaves comments unchanged. Within one companion process, overlapping seed and refresh requests wait in FIFO order for the earlier generation and review cycle to finish. This can make a CLI or HTTP request wait for an earlier operation. Across processes, every gossip-state read-modify-write takes an exclusive lock on a sibling of the state file and re-reads before it writes, so overlapping incremental updates queue instead of dropping a committed tidbit, comment, or telling. The model call stays outside that lock. A refresh still replaces the board when it commits. It re-reads first, keeps history and any comment or telling the new board still carries, and refuses to write when another refresh has already committed. If the lock cannot be acquired, the command exits non-zero and an HTTP refresh returns an error without rewriting the state file. Run one serve per workspace. A second `serve` on that state file exits before it listens. Do not run two containers on one workspace.
 
 During one refresh, each successfully appended rumor uses a distinct rumor-target persona set—the unordered persona IDs in `roles.targets`, including the empty set when there are zero targets. The refresh loop resamples role picks up to a small retry budget when a set would repeat; only accepted tidbits reserve a set, and deduplication is scoped to that batch only (not prior days or generated history).
 
@@ -129,7 +129,7 @@ docker run --rm -p 8787:8080 \
   subwave-gossip-companion
 ```
 
-This publishes host port `8787` to the image's container port `8080`; use `http://127.0.0.1:8787` for feed and refresh requests. The container listens on `8080`.
+This publishes host port `8787` to the image's container port `8080`; use `http://127.0.0.1:8787` for feed and refresh requests. The container listens on `8080`. Run one serve per workspace. Do not run two containers on one workspace; a second container sharing it cannot serve beside the first.
 
 Put `prompt.md` and `gossip-types.json` in the mounted workspace, or set `GOSSIP_TYPES_PATH` to another path under the mount. The entrypoint refreshes `prompt.md.default` on every start and seeds `prompt.md` when it is missing or empty; the Node process applies the same rules for non-Docker runs. It sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, operator prompt/types files, the operational log, and the LLM call log.
 
@@ -140,6 +140,8 @@ The GitHub Actions workflow publishes `ghcr.io/<owner>/subwave-gossip-companion`
 ## Scheduled commands
 
 The image entrypoint only runs `serve` (`node src/cli.js serve --base-dir /workspace`). It does not install cron. Scheduling stays on the host, Unraid User Scripts, or another external runner.
+
+Run one serve per workspace. A second `serve`, or a second container mounting the same workspace, is refused and does not replace the gossip state file. Do not run two containers on one workspace. The host crontab and the `docker exec` commands below stay the writers. They commit while that one `serve` is running and are serialized with it on the state file.
 
 `refresh` replaces the active gossip slate. `seed` appends tidbits and leaves existing ones in place. The daily job in `crontab` is `refresh`. Use `seed` only when you intentionally want to append. `ingest-spoken` pulls new spoken events into state; it does not generate the daily slate.
 

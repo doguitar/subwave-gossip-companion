@@ -2,11 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { matchVoicedTidbit } from './spoken.js';
+import { acquireMutationLock } from './workspaceLock.js';
 
 const COMMENT_LIMIT = 1000;
 
 export function emptyState() {
-  return { tidbits: [], generatedGossipHistory: [], gossipComments: [] };
+  return { tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0 };
 }
 
 function normalizeHistoryBatch(raw) {
@@ -141,11 +142,20 @@ export function recordTidbitTelling(state, tidbitId, toldAt) {
   return toldAtList;
 }
 
+function normalizeBoardRevision(value) {
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
 export function normalizeState(parsed) {
   const tidbits = Array.isArray(parsed?.tidbits) ? parsed.tidbits.map(normalizeTidbit) : [];
   const generatedGossipHistory = normalizeGeneratedGossipHistory(parsed?.generatedGossipHistory);
   const gossipCommentsList = gossipComments(parsed).slice(-COMMENT_LIMIT);
-  return { tidbits, generatedGossipHistory, gossipComments: gossipCommentsList };
+  return {
+    tidbits,
+    generatedGossipHistory,
+    gossipComments: gossipCommentsList,
+    boardRevision: normalizeBoardRevision(parsed?.boardRevision),
+  };
 }
 
 function clone(value) {
@@ -178,6 +188,15 @@ export class GossipStore {
     return run;
   }
 
+  async #withExclusiveDisk(fn) {
+    const release = await acquireMutationLock(this.filePath);
+    try {
+      return await fn();
+    } finally {
+      await release();
+    }
+  }
+
   async #readFromDisk({ persistMissing = false } = {}) {
     let raw;
     try {
@@ -204,11 +223,11 @@ export class GossipStore {
   }
 
   load() {
-    return this.#enqueue(() => this.#readFromDisk({ persistMissing: true }));
+    return this.#enqueue(() => this.#withExclusiveDisk(() => this.#readFromDisk({ persistMissing: true })));
   }
 
   reload() {
-    return this.#enqueue(() => this.#readFromDisk({ persistMissing: true }));
+    return this.#enqueue(() => this.#withExclusiveDisk(() => this.#readFromDisk({ persistMissing: true })));
   }
 
   snapshot() {
@@ -220,14 +239,14 @@ export class GossipStore {
   }
 
   mutate(fn) {
-    return this.#enqueue(async () => {
+    return this.#enqueue(() => this.#withExclusiveDisk(async () => {
       await this.#readFromDisk({ persistMissing: false });
       const next = clone(this.state);
       const result = await fn(next);
       this.state = normalizeState(next);
       await this.#persist(this.state);
       return result;
-    });
+    }));
   }
 
   async #persist(state) {

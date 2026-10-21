@@ -48,6 +48,14 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
   assert.match(readme, /Authorization: Bearer/);
   assert.doesNotMatch(readme, /http:\/\/127\.0\.0\.1:8095/);
   assert.match(readme, /The image entrypoint only runs `serve`/);
+  assert.match(readme, /one serve per workspace/);
+  assert.match(readme, /Do not run two containers on one workspace/);
+  assert.match(readme, /serialized with/);
+  assert.doesNotMatch(readme, /not coordinated/);
+  assert.match(dockerfile, /One serve per workspace/);
+  assert.match(dockerfile, /CMD \["node", "src\/cli\.js", "serve", "--base-dir", "\/workspace"\]/);
+  assert.match(crontab, /serialized with/);
+  assert.match(crontab, /Do not start a second serve/);
   assert.match(readme, /`refresh` replaces the active gossip slate/);
   assert.match(readme, /`seed` appends tidbits/);
   assert.match(readme, /node src\/cli\.js refresh --base-dir \/workspace/);
