@@ -23,6 +23,7 @@ GOSSIP_REFRESH_MIN_INTERVAL_MS=60000
 GOSSIP_REFRESH_BODY_MAX_BYTES=16384
 GOSSIP_HEADERS_TIMEOUT_MS=10000
 GOSSIP_REQUEST_TIMEOUT_MS=30000
+GOSSIP_SHUTDOWN_DEADLINE_MS=5000
 GOSSIP_REVIEW_ROUNDS=0
 GOSSIP_THREAD_MAX_TELLINGS=3
 GOSSIP_THREAD_MAX_AGE_MS=86400000
@@ -37,6 +38,8 @@ GOSSIP_THREAD_MAX_AGE_MS=86400000
 `GOSSIP_REFRESH_SECRET` is required and is a dedicated operator credential for the HTTP refresh endpoints; it never falls back to Subwave or LLM credentials. Send it as `Authorization: Bearer <secret>`. `GOSSIP_REFRESH_MAX_CONCURRENCY` (default `1`, range `1`–`10`) bounds simultaneous admitted refreshes, and `GOSSIP_REFRESH_MIN_INTERVAL_MS` (default `60000`, range `0`–`3600000`) limits how frequently one process admits them. Rejected unauthenticated requests do not read a body or reload/generate gossip; requests exceeding either admission limit receive `429`.
 
 `GOSSIP_REFRESH_BODY_MAX_BYTES` (default `16384`, range `1`–`1048576`) limits the JSON body accepted by `POST /refresh` and `POST /gossip/refresh`. Bodies whose declared `Content-Length` or streamed bytes exceed the limit receive `413 Payload Too Large` before gossip reload or generation begins. `GOSSIP_HEADERS_TIMEOUT_MS` (default `10000`, range `1000`–`300000`) limits header delivery, and `GOSSIP_REQUEST_TIMEOUT_MS` (default `30000`, range `1000`–`300000`) limits the complete HTTP request, including its body; both values are milliseconds.
+
+`GOSSIP_SHUTDOWN_DEADLINE_MS` (default `5000`, range `0`–`3600000`) is how long `serve` keeps draining an admitted refresh or a follow-up watch after `SIGTERM` or `SIGINT`. `0` skips that wait. The orchestrator stop grace has to be strictly longer than the deadline plus the five-second exclusive state-lock wait. Docker's default grace of 10 seconds is not long enough for the default deadline: set it to at least 15 seconds (`docker run --stop-timeout`, `docker stop --time`, Compose `stop_grace_period`). Unraid uses Docker's stop grace and needs the same setting.
 
 `GOSSIP_THREAD_MAX_TELLINGS` (default `3`, range `1`–`100`) and `GOSSIP_THREAD_MAX_AGE_MS` (default `86400000`) retire a thread from RSS selection after its attributed on-air telling count or age reaches the configured limit. RSS item shape remains unchanged.
 
@@ -131,6 +134,8 @@ docker run --rm -p 8787:8080 \
 
 This publishes host port `8787` to the image's container port `8080`; use `http://127.0.0.1:8787` for feed and refresh requests. The container listens on `8080`. Run one serve per workspace. Do not run two containers on one workspace; a second container sharing it cannot serve beside the first.
 
+`GOSSIP_SHUTDOWN_DEADLINE_MS` defaults to `5000`. The orchestrator stop grace has to be strictly longer than that deadline plus the five-second exclusive state-lock wait. Docker's default grace of 10 seconds is not long enough for the default deadline: set it to at least 15 seconds (`docker run --stop-timeout`, `docker stop --time`, Compose `stop_grace_period`). Unraid uses Docker's stop grace and needs the same setting.
+
 Put `prompt.md` and `gossip-types.json` in the mounted workspace, or set `GOSSIP_TYPES_PATH` to another path under the mount. The entrypoint refreshes `prompt.md.default` on every start and seeds `prompt.md` when it is missing or empty; the Node process applies the same rules for non-Docker runs. It sets `GOSSIP_BASE_DIR=/workspace` and starts the server with that base directory. Persist `/workspace` to retain gossip state, operator prompt/types files, the operational log, and the LLM call log.
 
 ## GitHub Container Registry
@@ -174,4 +179,4 @@ curl -fsSL https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/m
   -o /boot/config/plugins/dockerMan/templates-user/my-subwave-gossip-companion.xml
 ```
 
-Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials plus a long unique refresh operator secret, and apply. Keep the refresh secret private; the template masks it. Set conservative refresh admission values for an internet-reachable deployment. The template maps host port `8080` to container port `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`.
+Then open **Docker → Add Container**, choose the `subwave-gossip-companion` template, enter the Subwave and LLM credentials plus a long unique refresh operator secret, and apply. Keep the refresh secret private; the template masks it. Set conservative refresh admission values for an internet-reachable deployment. The template maps host port `8080` to container port `8080`; persistent files use `/mnt/user/appdata/subwave-gossip-companion`. Unraid uses Docker's stop grace. `GOSSIP_SHUTDOWN_DEADLINE_MS` defaults to `5000`, and that grace has to be strictly longer than the deadline plus the five-second exclusive state-lock wait. Docker's default grace of 10 seconds is not long enough for the default deadline: set it to at least 15 seconds (`docker run --stop-timeout`, `docker stop --time`, Compose `stop_grace_period`).

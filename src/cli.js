@@ -111,12 +111,30 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       : null;
     maintenance?.unref?.();
     const shutdown = (signal) => {
-      clearInterval(maintenance);
-      log.info(`[gossip] received ${signal}; shutting down`);
-      server.close(() => process.exit(0));
+      server.shutdown({
+        signal,
+        deadlineMs: config.shutdownDeadlineMs,
+        onBegin() {
+          clearInterval(maintenance);
+        },
+      }).then(() => finishServe(0), () => finishServe(0));
     };
-    process.once('SIGTERM', () => shutdown('SIGTERM'));
-    process.once('SIGINT', () => shutdown('SIGINT'));
+    const finishServe = (code) => {
+      process.exitCode = code;
+      try { process.disconnect?.(); } catch { /* no IPC channel */ }
+      // process.exit while libuv is already closing abort and socket handles
+      // trips a Windows assertion in uv async.c and the code becomes
+      // 0xC0000409 instead of 0. Give those closes a turn, then exit.
+      setTimeout(() => process.exit(code), 100);
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    // Windows child.kill(SIGTERM/SIGINT) terminates the process without
+    // running these handlers. The test bridge forwards the signal name over
+    // IPC; emitting it here takes the same shutdown path.
+    process.on('message', (message) => {
+      if (message === 'SIGTERM' || message === 'SIGINT') process.emit(message);
+    });
     return { server, store, adapter, config };
   }
 
@@ -181,8 +199,18 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config, log, ...args }),
       generateReview: (args) => generateReview({ config, log, ...args }),
-      summarizeSouls: (personas) => summarizePersonaSouls({ config, personas, log }),
-      summarizeHouseRules: (rules) => summarizeHouseRules({ config, houseRules: rules, log }),
+      summarizeSouls: (personas, options = {}) => summarizePersonaSouls({
+        config,
+        personas,
+        log,
+        signal: options.signal,
+      }),
+      summarizeHouseRules: (rules, options = {}) => summarizeHouseRules({
+        config,
+        houseRules: rules,
+        log,
+        signal: options.signal,
+      }),
     });
     log.info(`[gossip] refresh result ${JSON.stringify(result)}`);
     return result;

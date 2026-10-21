@@ -15,6 +15,7 @@ const DEFAULT_REFRESH_MIN_INTERVAL_MS = 60_000;
 const DEFAULT_REFRESH_BODY_MAX_BYTES = 16 * 1024;
 const DEFAULT_HTTP_HEADERS_TIMEOUT_MS = 10_000;
 const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_SHUTDOWN_DEADLINE_MS = 5000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -117,6 +118,10 @@ export function loadConfig(env = process.env) {
   if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1_000 || requestTimeoutMs > 300_000) {
     errors.push('GOSSIP_REQUEST_TIMEOUT_MS must be an integer 1000-300000');
   }
+  const shutdownDeadlineMs = Number(env.GOSSIP_SHUTDOWN_DEADLINE_MS ?? String(DEFAULT_SHUTDOWN_DEADLINE_MS));
+  if (!Number.isInteger(shutdownDeadlineMs) || shutdownDeadlineMs < 0 || shutdownDeadlineMs > 3_600_000) {
+    errors.push('GOSSIP_SHUTDOWN_DEADLINE_MS must be an integer 0-3600000');
+  }
 
   const host = (env.GOSSIP_HOST || '0.0.0.0').trim();
   const statePath = resolveState(env.GOSSIP_STATE_PATH);
@@ -216,6 +221,9 @@ export function loadConfig(env = process.env) {
     requestTimeoutMs: Number.isInteger(requestTimeoutMs) && requestTimeoutMs >= 1_000 && requestTimeoutMs <= 300_000
       ? requestTimeoutMs
       : DEFAULT_HTTP_REQUEST_TIMEOUT_MS,
+    shutdownDeadlineMs: Number.isInteger(shutdownDeadlineMs) && shutdownDeadlineMs >= 0 && shutdownDeadlineMs <= 3_600_000
+      ? shutdownDeadlineMs
+      : DEFAULT_SHUTDOWN_DEADLINE_MS,
     statePath,
     feedBaseUrl,
     timezone,

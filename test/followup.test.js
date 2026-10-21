@@ -453,3 +453,116 @@ test('two follow-up processes keep both on-air tidbits, comments, and tellings',
   assert.equal(disk.tidbits.some((item) => item.text.includes(firstText)), true);
   assert.equal(disk.tidbits.some((item) => item.text.includes(secondText)), true);
 });
+
+test('waitForStationGossipTts stops further polls when cancelled and logs shutdown', async () => {
+  const controller = new AbortController();
+  let polls = 0;
+  const warnings = [];
+  let outcome;
+  const result = await waitForStationGossipTts({
+    adapter: {
+      async getDebug() {
+        polls += 1;
+        return { tts: { recentCalls: [] } };
+      },
+    },
+    since: new Date('2026-10-20T00:59:00.000Z'),
+    timeoutMs: 10_000,
+    intervalMs: 1000,
+    signal: controller.signal,
+    sleep: async () => { controller.abort(); },
+    onOutcome(watch) { outcome = watch; },
+    log: { info() {}, warn(message) { warnings.push(String(message)); } },
+  });
+  assert.equal(result, null);
+  assert.equal(polls, 1);
+  assert.equal(outcome.outcome, 'shutdown');
+  assert.equal(warnings.length, 1);
+  const payload = JSON.parse(warnings[0].slice('[gossip] tts watcher '.length));
+  assert.equal(payload.outcome, 'shutdown');
+  assert.equal(payload.polls, 1);
+  assert.equal(payload.lines, 0);
+  assert.equal(typeof payload.debugPolls, 'number');
+  assert.equal(typeof payload.fetchErrors, 'number');
+});
+
+test('shutdown refuses a new follow-up watch and keeps started watches visible', async () => {
+  const { store } = await tempStore();
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const watcher = createFollowupWatcher({
+    store,
+    adapter: {
+      ...stubAdapter(),
+      async getDebug() {
+        await gate;
+        return { tts: { recentCalls: [] } };
+      },
+    },
+    config: { ttsTimeoutMs: 50, ttsPollMs: 1 },
+    log: { info() {}, warn() {} },
+  });
+  const since = new Date('2026-10-20T00:59:00.000Z');
+  const first = watcher.afterSkillFetch({ show: 'Test Show', since });
+  const second = watcher.afterSkillFetch({ show: 'Test Show', since });
+  assert.equal(watcher.inFlight().length, 2);
+  watcher.beginShutdown();
+  const refused = await watcher.afterSkillFetch({ show: 'Test Show', since });
+  assert.equal(refused.started, false);
+  assert.equal(watcher.inFlight().length, 2);
+  watcher.abandon();
+  release();
+  const settled = await Promise.all([first, second]);
+  assert.equal(settled.every((item) => item.watch.outcome === 'shutdown'), true);
+  assert.equal(settled.every((item) => item.disposition === 'aborted'), true);
+  assert.deepEqual(watcher.outcomeTally(), { drained: 0, aborted: 2 });
+});
+
+test('a follow-up commit already started finishes and counts as drained', async () => {
+  const { store, read } = await tempStore();
+  let entered = () => {};
+  const started = new Promise((resolve) => { entered = resolve; });
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const original = store.mutate.bind(store);
+  store.mutate = (fn) => {
+    entered();
+    return gate.then(() => original(fn));
+  };
+  const airedAt = '2026-10-20T01:00:00.000Z';
+  const spokenLine = {
+    kind: 'station-gossip',
+    text: 'Shoots, word is da cart machine hiccuped twice last night.',
+    t: airedAt,
+    meta: { airedAt, personaId: 'p_79eaff', personaName: 'Uncle Kai' },
+  };
+  const watcher = createFollowupWatcher({
+    store,
+    adapter: {
+      ...stubAdapter(),
+      async getDebug() {
+        return { tts: { recentCalls: [spokenLine] } };
+      },
+      async getRosterPersonas() {
+        return [{ id: 'p_79eaff', name: 'Uncle Kai' }, PERSONA_A];
+      },
+    },
+    config: { ttsTimeoutMs: 30, ttsPollMs: 1 },
+    log: { info() {}, warn() {} },
+  });
+  const pending = watcher.afterSkillFetch({
+    show: 'Test Show',
+    since: new Date('2026-10-20T00:59:00.000Z'),
+  });
+  await started;
+  watcher.beginShutdown();
+  watcher.abandon();
+  release();
+  const result = await pending;
+  assert.equal(result.disposition, 'drained');
+  assert.equal(result.watch.outcome, 'shutdown');
+  assert.equal(result.outcomes.shutdown, 1);
+  const disk = await read();
+  assert.equal(disk.tidbits.some((item) => item.text.includes('cart machine')), true);
+  assert.deepEqual(watcher.outcomeTally(), { drained: 1, aborted: 0 });
+});

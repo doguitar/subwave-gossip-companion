@@ -80,6 +80,24 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
   );
 });
 
+test('operator docs state the shutdown deadline and orchestrator grace rule', async () => {
+  const [readme, example] = await Promise.all([
+    readArtifact('README.md'),
+    readArtifact('.env.example'),
+  ]);
+  for (const text of [readme, example]) {
+    assert.match(text, /GOSSIP_SHUTDOWN_DEADLINE_MS/);
+    assert.match(text, /5000/);
+    assert.match(text, /strictly longer than (?:the|this|that) deadline plus the five-second exclusive state-lock wait/);
+    assert.match(text, /10 seconds/);
+    assert.match(text, /at least 15 seconds/);
+    assert.match(text, /docker run --stop-timeout/);
+    assert.match(text, /docker stop --time/);
+    assert.match(text, /stop_grace_period/);
+    assert.match(text, /Unraid/);
+  }
+});
+
 test('operator README documents corrupt state refusal and manual restore', async () => {
   const readme = await readArtifact('README.md');
   assert.match(readme, /exits non-zero/);

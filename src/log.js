@@ -1,3 +1,4 @@
+import { writeSync } from 'node:fs';
 import { appendOperationalLog } from './callLog.js';
 
 /** Collapse internal newlines and JSON-quote for single-line operational log fields. */
@@ -11,7 +12,16 @@ export function createLog(operationalLogPath, consoleSink = console) {
   let appendQueue = Promise.resolve();
 
   const tee = (writeFn, message) => {
-    writeFn(message);
+    if (consoleSink === console) {
+      const fd = writeFn === consoleSink.log ? 1 : 2;
+      try {
+        writeSync(fd, `${message}\n`);
+      } catch {
+        writeFn(message);
+      }
+    } else {
+      writeFn(message);
+    }
     if (!operationalLogPath) return;
     appendQueue = appendQueue
       .then(() => appendOperationalLog(operationalLogPath, String(message)))

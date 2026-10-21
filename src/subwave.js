@@ -111,19 +111,19 @@ export class SubwaveAdapter {
     return this.request('/schedule', { signal });
   }
 
-  async getSession() {
-    return this.request('/session');
+  async getSession({ signal } = {}) {
+    return this.request('/session', { signal });
   }
 
-  async getDebug() {
-    return this.request('/debug');
+  async getDebug({ signal } = {}) {
+    return this.request('/debug', { signal });
   }
 
-  async getSettings() {
-    return this.request('/settings');
+  async getSettings({ signal } = {}) {
+    return this.request('/settings', { signal });
   }
-  async getHouseRules() {
-    const settings = await this.getSettings();
+  async getHouseRules({ signal } = {}) {
+    const settings = await this.getSettings({ signal });
     return settings?.values?.djHouseRules ?? settings?.djHouseRules ?? '';
   }
 
@@ -140,40 +140,49 @@ export class SubwaveAdapter {
     }
   }
 
-  async getRosterPersonas() {
+  async getRosterPersonas({ signal } = {}) {
     try {
-      const settings = await this.getSettings();
+      const settings = await this.getSettings({ signal });
       const admin = settings?.values?.personas || settings?.personas;
       if (Array.isArray(admin) && admin.length) {
         return normalizePersonas(admin);
       }
     } catch (err) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
       this.log.warn?.(`[gossip] admin /settings roster failed: ${err.message}`);
     }
+    if (signal?.aborted) {
+      throw Object.assign(new Error(signal.reason === 'shutdown' ? 'shutting down' : 'This operation was aborted'), {
+        name: 'AbortError',
+        ...(signal.reason === 'shutdown' ? { reason: 'shutdown', status: 503 } : {}),
+      });
+    }
     try {
-      const schedule = await this.getSchedule();
+      const schedule = await this.getSchedule({ signal });
       return normalizePersonas(schedule.personas || []);
     } catch (err) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
       this.log.warn?.(`[gossip] roster fetch failed: ${err.message}`);
       return [];
     }
   }
 
-  async getShowPersonas(showTitle) {
+  async getShowPersonas(showTitle, { signal } = {}) {
     const wanted = String(showTitle || '').trim();
     if (!wanted) return [];
     let schedule;
     try {
-      schedule = await this.getSchedule();
+      schedule = await this.getSchedule({ signal });
     } catch (err) {
       this.log.warn?.(`[gossip] schedule load failed: ${err.message}`);
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
       if (!err.status || !Number.isInteger(err.status)) err.status = 503;
       throw err;
     }
     const fromSchedule = personasForShow(schedule, wanted, this.log);
     if (fromSchedule.matched) return fromSchedule.personas;
     try {
-      const session = await this.getSession();
+      const session = await this.getSession({ signal });
       const sessionTitle = String(session?.session?.show || session?.show || '').trim();
       if (sessionTitle === wanted) {
         const retry = personasForShow(schedule, sessionTitle, this.log);
@@ -181,6 +190,7 @@ export class SubwaveAdapter {
         return personasFromSession(session);
       }
     } catch (err) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
       this.log.warn?.(`[gossip] session fallback failed: ${err.message}`);
     }
     this.log.warn?.(`[gossip] show not found: ${wanted}`);

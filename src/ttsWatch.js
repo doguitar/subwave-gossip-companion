@@ -108,6 +108,30 @@ function terminalOutcome({ found, successfulPolls, fetchErrors, sawSpeech, adapt
   return 'no-segment';
 }
 
+function watchAbortError(signal) {
+  const shutdown = signal?.reason === 'shutdown' || signal?.reason?.reason === 'shutdown';
+  return Object.assign(new Error(shutdown ? 'shutting down' : 'This operation was aborted'), {
+    name: 'AbortError',
+    ...(shutdown ? { reason: 'shutdown', status: 503 } : {}),
+  });
+}
+
+async function withWatchSignal(promise, signal) {
+  const work = Promise.resolve(promise);
+  if (!signal) return work;
+  if (signal.aborted) throw watchAbortError(signal);
+  let onAbort;
+  const aborted = new Promise((_, reject) => {
+    onAbort = () => reject(watchAbortError(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([work, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
 export async function waitForStationGossipTts({
   adapter,
   since,
@@ -118,6 +142,7 @@ export async function waitForStationGossipTts({
   onOutcome,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   log = console,
+  signal,
 } = {}) {
   const deadline = Date.now() + timeoutMs;
   const found = new Map();
@@ -126,7 +151,12 @@ export async function waitForStationGossipTts({
   let consecutiveFailures = 0;
   let successfulPolls = 0;
   let sawSpeech = false;
-  while (Date.now() <= (settleDeadline || deadline)) {
+  let abandoned = false;
+  while (!abandoned && Date.now() <= (settleDeadline || deadline)) {
+    if (signal?.aborted) {
+      abandoned = true;
+      break;
+    }
     counters.polls += 1;
     let hits = [];
     let debug = null;
@@ -134,27 +164,36 @@ export async function waitForStationGossipTts({
     if (adapter.getDebug) {
       counters.debugPolls += 1;
       try {
-        debug = await adapter.getDebug();
+        debug = await withWatchSignal(adapter.getDebug({ signal }), signal);
         successfulPolls += 1;
         sawSpeech ||= hasRecentSpeech(debug, since);
         hits = findStationGossipTts(debug, since);
-      } catch {
+      } catch (err) {
+        if (signal?.aborted || err?.name === 'AbortError') {
+          abandoned = true;
+          break;
+        }
         counters.fetchErrors += 1;
         pollFailed = true;
       }
     }
-    if (!hits.length && adapter.getSession) {
+    if (!abandoned && !hits.length && adapter.getSession) {
       counters.sessionPolls += 1;
       try {
-        const session = await adapter.getSession();
+        const session = await withWatchSignal(adapter.getSession({ signal }), signal);
         successfulPolls += 1;
         sawSpeech ||= hasRecentSpeech(session, since);
         hits = findStationGossipTts(session, since);
-      } catch {
+      } catch (err) {
+        if (signal?.aborted || err?.name === 'AbortError') {
+          abandoned = true;
+          break;
+        }
         counters.fetchErrors += 1;
         pollFailed = true;
       }
     }
+    if (abandoned) break;
     const correlated = [];
     for (const spoken of hits) {
       const lines = debug ? relatedStationLlmLines(debug, spoken) : [];
@@ -168,7 +207,15 @@ export async function waitForStationGossipTts({
       found.set(key, spoken);
       newLines.push(spoken);
     }
+    if (signal?.aborted) {
+      abandoned = true;
+      break;
+    }
     if (newLines.length && onLines) await onLines(newLines);
+    if (signal?.aborted) {
+      abandoned = true;
+      break;
+    }
     if (newLines.length && !settleDeadline) {
       settleDeadline = Date.now() + settleMs;
       log.info?.(`[gossip] first station-gossip line detected; collecting follow-up lines for ${settleMs}ms`);
@@ -184,10 +231,27 @@ export async function waitForStationGossipTts({
     const delay = pollFailed ? Math.min(intervalMs * (2 ** Math.min(consecutiveFailures, 4)), 30000) : intervalMs;
     const wait = Math.min(delay, Math.max(0, activeDeadline - Date.now()));
     if (wait <= 0) break;
-    await sleep(wait);
+    try {
+      await withWatchSignal(sleep(wait), signal);
+    } catch (err) {
+      if (signal?.aborted || err?.name === 'AbortError') {
+        abandoned = true;
+        break;
+      }
+      throw err;
+    }
+    if (signal?.aborted) {
+      abandoned = true;
+      break;
+    }
   }
   const result = [...found.values()].sort((a, b) => new Date(a.meta?.airedAt || a.t || 0) - new Date(b.meta?.airedAt || b.t || 0));
-  const watch = { outcome: terminalOutcome({ found: result.length, successfulPolls, fetchErrors: counters.fetchErrors, sawSpeech, adapter }), ...counters };
+  const watch = {
+    outcome: abandoned
+      ? 'shutdown'
+      : terminalOutcome({ found: result.length, successfulPolls, fetchErrors: counters.fetchErrors, sawSpeech, adapter }),
+    ...counters,
+  };
   result.watch = watch;
   if (result.length === 1) Object.assign(result, result[0]);
   const terminal = `[gossip] tts watcher ${JSON.stringify({ outcome: watch.outcome, ...counters, lines: result.length })}`;
