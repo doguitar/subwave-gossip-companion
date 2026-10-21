@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -159,6 +159,70 @@ test('provider commands exit with the state-file error when preflight would also
 
 test('ingest-spoken exits without rewriting a corrupt state file', async () => {
   assertCorruptStateFailure(await spawnWithCorruptState('ingest-spoken'));
+});
+
+test('startup prunes expired operational segments when the call log is disabled', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gossip-oplog-'));
+  const statePath = path.join(root, 'data', 'gossip-state.json');
+  const logDir = path.join(root, 'logs');
+  await mkdir(path.dirname(statePath), { recursive: true });
+  const corrupt = '{"tidbits":';
+  await writeFile(statePath, corrupt);
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const aged = async (name, text, mtimeMs) => {
+    const file = path.join(logDir, name);
+    await mkdir(logDir, { recursive: true });
+    await writeFile(file, text);
+    const when = new Date(mtimeMs);
+    await utimes(file, when, when);
+    return file;
+  };
+  const active = await aged('gossip.log', 'active-old\n', now - 8 * day);
+  const stale = await aged('gossip.1000.log', 'rolled-old\n', now - 8 * day);
+  const fresh = await aged('gossip.2000.log', 'rolled-fresh\n', now - day);
+  const unrelated = await aged('llm-calls.jsonl', '{"at":"old"}\n', now - 8 * day);
+  const result = spawnSync(process.execPath, ['src/cli.js', 'ingest-spoken', '--base-dir', root], {
+    cwd: repo,
+    encoding: 'utf8',
+    timeout: 8000,
+    env: {
+      ...companionEnv(root, statePath, 18787),
+      GOSSIP_LLM_CALL_LOG: '',
+      GOSSIP_OPERATIONAL_LOG_MAX_BYTES: '524288',
+      GOSSIP_OPERATIONAL_LOG_RETENTION_MS: '604800000',
+    },
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr.trim(), `${statePath} is not valid JSON`);
+  assert.equal(await readFile(statePath, 'utf8'), corrupt);
+  await assert.rejects(readFile(active, 'utf8'));
+  await assert.rejects(readFile(stale, 'utf8'));
+  assert.equal(await readFile(fresh, 'utf8'), 'rolled-fresh\n');
+  assert.equal(await readFile(unrelated, 'utf8'), '{"at":"old"}\n');
+  assert.equal((await readdir(logDir)).includes('gossip.log'), false);
+});
+
+test('operational log maintenance failure aborts startup', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gossip-oplog-'));
+  const logs = path.join(root, 'logs');
+  await writeFile(logs, 'not-a-directory');
+  const statePath = path.join(root, 'data', 'gossip-state.json');
+  const result = spawnSync(process.execPath, ['src/cli.js', 'ingest-spoken', '--base-dir', root], {
+    cwd: repo,
+    encoding: 'utf8',
+    timeout: 8000,
+    env: {
+      ...companionEnv(root, statePath, 18787),
+      GOSSIP_LLM_CALL_LOG: '',
+      GOSSIP_OPERATIONAL_LOG: path.join(logs, 'gossip.log'),
+    },
+  });
+  const output = `${result.stdout}\n${result.stderr}`;
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(output, /storage ready/);
+  assert.doesNotMatch(output, /listening/);
+  assert.equal(await readFile(logs, 'utf8'), 'not-a-directory');
 });
 
 function companionEnv(root, statePath, port) {

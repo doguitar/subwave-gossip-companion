@@ -17,7 +17,7 @@ import {
   LLM_CALL_LOG_MAX_BYTES,
   LLM_CALL_LOG_RETENTION_MS,
 } from '../src/callLog.js';
-import { loadConfig } from '../src/config.js';
+import { loadConfig, requireConfig } from '../src/config.js';
 import { createLog, formatRumorForOperationalLog } from '../src/log.js';
 import { buildLlmRequest, extractJsonObject, generateSeed, parseLlmResponse, preflightProvider, soulSummaryUserPrompt, summarizeHouseRules, summarizePersonaSouls } from '../src/llm.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
@@ -115,6 +115,62 @@ test('loadConfig resolves operational log path under GOSSIP_BASE_DIR', () => {
     GOSSIP_REFRESH_SECRET: 'test-secret',
   }).config;
   assert.equal(custom.operationalLogPath, path.join(custom.baseDir, 'var', 'run', 'gossip.log'));
+
+  const empty = loadConfig({
+    GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
+    GOSSIP_OPERATIONAL_LOG: '',
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
+  });
+  assert.deepEqual(empty.errors, []);
+  assert.equal(empty.config.operationalLogPath, path.join(empty.config.baseDir, 'logs', 'gossip.log'));
+});
+
+test('loadConfig defaults operational log limits and rejects values outside the range', () => {
+  const base = {
+    GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
+  };
+  const unset = loadConfig(base);
+  assert.deepEqual(unset.errors, []);
+  assert.equal(unset.config.operationalLogMaxBytes, 524288);
+  assert.equal(unset.config.operationalLogRetentionMs, 604800000);
+
+  assert.equal(loadConfig({ ...base, GOSSIP_OPERATIONAL_LOG_MAX_BYTES: '1' }).config.operationalLogMaxBytes, 1);
+  assert.equal(
+    loadConfig({ ...base, GOSSIP_OPERATIONAL_LOG_MAX_BYTES: '1073741824' }).config.operationalLogMaxBytes,
+    1073741824,
+  );
+  assert.equal(loadConfig({ ...base, GOSSIP_OPERATIONAL_LOG_RETENTION_MS: '1' }).config.operationalLogRetentionMs, 1);
+  assert.equal(
+    loadConfig({ ...base, GOSSIP_OPERATIONAL_LOG_RETENTION_MS: '31536000000' }).config.operationalLogRetentionMs,
+    31536000000,
+  );
+
+  for (const value of ['0', '-1', '1.5', '1073741825', 'nope', '']) {
+    const { errors } = loadConfig({ ...base, GOSSIP_OPERATIONAL_LOG_MAX_BYTES: value });
+    assert.ok(errors.includes('GOSSIP_OPERATIONAL_LOG_MAX_BYTES must be an integer 1-1073741824'));
+  }
+  for (const value of ['0', '-1', '1.5', '31536000001', 'nope', '']) {
+    const { errors } = loadConfig({ ...base, GOSSIP_OPERATIONAL_LOG_RETENTION_MS: value });
+    assert.ok(errors.includes('GOSSIP_OPERATIONAL_LOG_RETENTION_MS must be an integer 1-31536000000'));
+  }
+
+  assert.throws(
+    () => requireConfig({ ...base, GOSSIP_OPERATIONAL_LOG_MAX_BYTES: '0' }),
+    (err) => err.code === 'CONFIG' && /GOSSIP_OPERATIONAL_LOG_MAX_BYTES/.test(err.message),
+  );
+  assert.throws(
+    () => requireConfig({ ...base, GOSSIP_OPERATIONAL_LOG_RETENTION_MS: 'nope' }),
+    (err) => err.code === 'CONFIG' && /GOSSIP_OPERATIONAL_LOG_RETENTION_MS/.test(err.message),
+  );
 });
 
 test('formatRumorForOperationalLog collapses newlines and JSON-quotes', () => {
@@ -146,9 +202,73 @@ test('createLog does not throw when the operational log path is not writable', a
   const base = await mkdtemp(path.join(tmpdir(), 'gossip-log-ro-'));
   const blocked = path.join(base, 'blocked');
   await mkdir(blocked, { recursive: true });
-  const log = createLog(blocked);
+  const lines = [];
+  const errors = [];
+  const log = createLog(blocked, {
+    log: (message) => lines.push(message),
+    warn: (message) => lines.push(message),
+    error: (message) => errors.push(message),
+  });
   log.info('[gossip] still works');
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  log.info('[gossip] still works again');
+  const deadline = Date.now() + 1000;
+  while (errors.length < 1 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(lines, ['[gossip] still works', '[gossip] still works again']);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^\[gossip\] operational log write failed:/);
+});
+
+test('createLog serializes rotation and passes the configured retention and clock', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-log-'));
+  const logPath = path.join(dir, 'gossip.log');
+  const stale = path.join(dir, 'gossip.5.log');
+  const fresh = path.join(dir, 'gossip.9.log');
+  const wall = Date.now();
+  const nowMs = wall + 10_000;
+  await writeFile(logPath, 'x'.repeat(32));
+  await utimes(logPath, new Date(nowMs - 100), new Date(nowMs - 100));
+  await writeFile(stale, 'stale\n');
+  await utimes(stale, new Date(wall), new Date(wall));
+  await writeFile(fresh, 'fresh-bytes\n');
+  await utimes(fresh, new Date(nowMs - 100), new Date(nowMs - 100));
+  const lines = [];
+  const errors = [];
+  let clock = nowMs;
+  const log = createLog(logPath, {
+    log: (message) => lines.push(message),
+    warn: (message) => lines.push(message),
+    error: (message) => errors.push(message),
+  }, {
+    maxBytes: 32,
+    retentionMs: 1000,
+    now: () => {
+      clock += 1;
+      return clock;
+    },
+  });
+  log.info('one');
+  log.info('two');
+  let active = '';
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      active = await readFile(logPath, 'utf8');
+    } catch {
+      active = '';
+    }
+    if (active === 'one\ntwo\n') break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(lines, ['one', 'two']);
+  assert.deepEqual(errors, []);
+  assert.equal(active, 'one\ntwo\n');
+  const rolled = (await readdir(dir)).filter((name) => /^gossip\.\d+\.log$/.test(name) && name !== 'gossip.9.log');
+  assert.deepEqual(rolled, [`gossip.${nowMs + 1}.log`]);
+  assert.equal(await readFile(path.join(dir, rolled[0]), 'utf8'), 'x'.repeat(32));
+  await assert.rejects(readFile(stale, 'utf8'));
+  assert.equal(await readFile(fresh, 'utf8'), 'fresh-bytes\n');
 });
 
 test('buildLlmRequest covers openai, google, and anthropic', () => {

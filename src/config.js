@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import path from 'node:path';
 
+import { OPERATIONAL_LOG_MAX_BYTES, OPERATIONAL_LOG_RETENTION_MS } from './callLog.js';
 import { loadGossipTypesFromPath } from './gossipTypes.js';
 
 const DEFAULT_PORT = 8080;
@@ -16,6 +17,8 @@ const DEFAULT_REFRESH_BODY_MAX_BYTES = 16 * 1024;
 const DEFAULT_HTTP_HEADERS_TIMEOUT_MS = 10_000;
 const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_SHUTDOWN_DEADLINE_MS = 5000;
+const OPERATIONAL_LOG_MAX_BYTES_LIMIT = 1073741824;
+const OPERATIONAL_LOG_RETENTION_MS_LIMIT = 31536000000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -166,6 +169,26 @@ export function loadConfig(env = process.env) {
     errors.push('GOSSIP_LLM_LOG_CONTENT must be off, metadata, or full');
   }
   const operationalLogPath = resolveBase(env.GOSSIP_OPERATIONAL_LOG, path.join('logs', 'gossip.log'));
+  const operationalLogMaxBytes = Number(
+    env.GOSSIP_OPERATIONAL_LOG_MAX_BYTES ?? String(OPERATIONAL_LOG_MAX_BYTES),
+  );
+  if (
+    !Number.isInteger(operationalLogMaxBytes)
+    || operationalLogMaxBytes < 1
+    || operationalLogMaxBytes > OPERATIONAL_LOG_MAX_BYTES_LIMIT
+  ) {
+    errors.push(`GOSSIP_OPERATIONAL_LOG_MAX_BYTES must be an integer 1-${OPERATIONAL_LOG_MAX_BYTES_LIMIT}`);
+  }
+  const operationalLogRetentionMs = Number(
+    env.GOSSIP_OPERATIONAL_LOG_RETENTION_MS ?? String(OPERATIONAL_LOG_RETENTION_MS),
+  );
+  if (
+    !Number.isInteger(operationalLogRetentionMs)
+    || operationalLogRetentionMs < 1
+    || operationalLogRetentionMs > OPERATIONAL_LOG_RETENTION_MS_LIMIT
+  ) {
+    errors.push(`GOSSIP_OPERATIONAL_LOG_RETENTION_MS must be an integer 1-${OPERATIONAL_LOG_RETENTION_MS_LIMIT}`);
+  }
   const promptPath = path.join(baseDir, 'prompt.md');
   const gossipTypesPath = resolveBase(env.GOSSIP_TYPES_PATH, 'gossip-types.json');
   let systemPrompt = '';
@@ -237,6 +260,16 @@ export function loadConfig(env = process.env) {
     llmCallLogPath,
     llmLogContent,
     operationalLogPath,
+    operationalLogMaxBytes: Number.isInteger(operationalLogMaxBytes)
+      && operationalLogMaxBytes >= 1
+      && operationalLogMaxBytes <= OPERATIONAL_LOG_MAX_BYTES_LIMIT
+      ? operationalLogMaxBytes
+      : OPERATIONAL_LOG_MAX_BYTES,
+    operationalLogRetentionMs: Number.isInteger(operationalLogRetentionMs)
+      && operationalLogRetentionMs >= 1
+      && operationalLogRetentionMs <= OPERATIONAL_LOG_RETENTION_MS_LIMIT
+      ? operationalLogRetentionMs
+      : OPERATIONAL_LOG_RETENTION_MS,
     refreshCount,
     ttsTimeoutMs: Number.isFinite(ttsTimeoutMs) && ttsTimeoutMs > 0 ? ttsTimeoutMs : 5 * 60 * 1000,
     minRumorLength: Number.isInteger(minRumorLength) && minRumorLength > 0 ? minRumorLength : 20,

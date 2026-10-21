@@ -1,5 +1,9 @@
 import { writeSync } from 'node:fs';
-import { appendOperationalLog } from './callLog.js';
+import {
+  appendOperationalLog,
+  OPERATIONAL_LOG_MAX_BYTES,
+  OPERATIONAL_LOG_RETENTION_MS,
+} from './callLog.js';
 
 /** Collapse internal newlines and JSON-quote for single-line operational log fields. */
 export function formatRumorForOperationalLog(text) {
@@ -7,7 +11,10 @@ export function formatRumorForOperationalLog(text) {
   return JSON.stringify(singleLine);
 }
 
-export function createLog(operationalLogPath, consoleSink = console) {
+export function createLog(operationalLogPath, consoleSink = console, options = {}) {
+  const maxBytes = options.maxBytes ?? OPERATIONAL_LOG_MAX_BYTES;
+  const retentionMs = options.retentionMs ?? OPERATIONAL_LOG_RETENTION_MS;
+  const now = options.now ?? Date.now;
   let reportedWriteError = false;
   let appendQueue = Promise.resolve();
 
@@ -24,7 +31,11 @@ export function createLog(operationalLogPath, consoleSink = console) {
     }
     if (!operationalLogPath) return;
     appendQueue = appendQueue
-      .then(() => appendOperationalLog(operationalLogPath, String(message)))
+      .then(() => appendOperationalLog(operationalLogPath, String(message), {
+        maxBytes,
+        retentionMs,
+        nowMs: now(),
+      }))
       .catch((err) => {
         if (!reportedWriteError) {
           reportedWriteError = true;
