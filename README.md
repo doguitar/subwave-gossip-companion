@@ -77,7 +77,7 @@ A comment is `{id, tidbitId, actorPersonaId, show, commentedAt}`. Spoken events 
 
 ### Refreshing gossip
 
-The CLI refresh replaces the current board with a new linked set of tidbits. On a successful refresh, gossip comments whose `tidbitId` is not on the new board are removed; a failed refresh leaves comments unchanged.
+The CLI refresh replaces the current board with a new linked set of tidbits. On a successful refresh, gossip comments whose `tidbitId` is not on the new board are removed; a failed refresh leaves comments unchanged. Within one companion process, overlapping seed and refresh requests wait in FIFO order for the earlier generation and review cycle to finish. This can make a CLI or HTTP request wait for an earlier operation; separate companion processes are not coordinated.
 
 During one refresh, each successfully appended rumor uses a distinct rumor-target persona set—the unordered persona IDs in `roles.targets`, including the empty set when there are zero targets. The refresh loop resamples role picks up to a small retry budget when a set would repeat; only accepted tidbits reserve a set, and deduplication is scoped to that batch only (not prior days or generated history).
 
