@@ -70,10 +70,25 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
     unraidTemplate,
     /<Config Name="HTTP port" Target="8080" Default="8080"[^>]*>8080<\/Config>/,
   );
-  assert.match(
-    unraidTemplate,
-    /<Config Name="GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="http:\/\/127\.0\.0\.1:8080"[^>]*>http:\/\/127\.0\.0\.1:8080<\/Config>/,
-  );
+  assert.match(unraidTemplate, /<Repository>ghcr\.io\/doguitar\/subwave-gossip-companion:1\.0\.0<\/Repository>/);
+  assert.match(unraidTemplate, /floating tag latest/);
+  assert.match(unraidTemplate, /<Icon>https:\/\/github\.com\/doguitar\.png<\/Icon>/);
+  assert.doesNotMatch(unraidTemplate, /icon\.png/);
+  assert.match(unraidTemplate, /192\.168\.1\.20:8080/);
+  assert.match(unraidTemplate, /subwave-gossip-companion:8080/);
+  assert.doesNotMatch(unraidTemplate, /GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="http:\/\/127\.0\.0\.1:8080"/);
+  for (const [name, value] of [
+    ['GOSSIP_REVIEW_ROUNDS', '0'],
+    ['GOSSIP_TTS_TIMEOUT_MS', '300000'],
+    ['GOSSIP_TTS_POLL_MS', '3000'],
+    ['GOSSIP_LLM_LOG_CONTENT', 'metadata'],
+    ['GOSSIP_STATE_PATH', 'data/gossip-state.json'],
+    ['GOSSIP_TYPES_PATH', 'gossip-types.json'],
+    ['GOSSIP_REFRESH_SECRET', ''],
+    ['GOSSIP_SHUTDOWN_DEADLINE_MS', '5000'],
+  ]) {
+    assert.match(unraidTemplate, new RegExp(`Name="${name}"[^>]*Default="${value.replaceAll('/', '\\/')}"`));
+  }
   assert.match(
     unraidTemplate,
     /<Config Name="GOSSIP_REFRESH_SECRET" Target="GOSSIP_REFRESH_SECRET" Default=""[^>]*Mask="true"/,
