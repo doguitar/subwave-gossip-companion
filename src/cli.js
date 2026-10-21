@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { applyDotEnv, requireConfig } from './config.js';
+import { applyDotEnv, parseRefreshCount, requireConfig } from './config.js';
 import { ensurePromptWorkspace, warnIfPromptDrift } from './promptWorkspace.js';
 import { GossipStore } from './store.js';
 import { SubwaveAdapter } from './subwave.js';
@@ -46,6 +46,24 @@ export function generateOptions(argv, config) {
   }
   return { runConfig, reviewRounds };
 }
+
+export function refreshCountOption(argv, config) {
+  const values = [];
+  for (let index = 1; index < argv.length; index += 1) {
+    if (argv[index] === '--base-dir' || argv[index] === '--base') {
+      index += 1;
+      continue;
+    }
+    if (argv[index].startsWith('--')) throw new Error(`Unknown refresh option: ${argv[index]}`);
+    values.push(argv[index]);
+  }
+  if (values.length > 1) throw new Error('refresh accepts at most one count');
+  const explicit = values[0];
+  return explicit === undefined
+    ? config.refreshCount
+    : parseRefreshCount(explicit, 'refresh count');
+}
+
 export async function main(argv = process.argv.slice(2), env = process.env) {
   applyCliOptions(argv, env);
   const baseDir = path.resolve(env.GOSSIP_BASE_DIR || '.');
@@ -135,10 +153,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   }
 
   if (command === 'refresh' || command === 'gossip:refresh') {
+    const cap = refreshCountOption(argv, config);
     const result = await refreshGossip({
       store,
       adapter,
-      cap: Number(argv[1]) || config.refreshCount || 1,
+      cap,
+      strictCap: true,
       historyGenerations: config.gossipHistoryGenerations,
       timezone: config.timezone,
       minLength: config.minRumorLength,
@@ -173,7 +193,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return result;
   }
 
-  throw new Error(`Unknown command: ${command}. Use serve | generate | summarize-souls | seed | refresh | ingest-spoken`);
+  throw new Error(`Unknown command: ${command}. Use serve | generate | summarize-souls | seed | refresh [count] | ingest-spoken`);
 }
 
 if (import.meta.url === `file://${process.argv[1].replaceAll('\\', '/')}` || process.argv[1]?.endsWith('cli.js')) {

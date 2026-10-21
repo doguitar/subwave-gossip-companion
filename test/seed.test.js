@@ -288,7 +288,7 @@ test('default refresh chains until every persona participates', async () => {
       const targets = roles.targets.map((p) => p.name).join(' ');
       return { rumor: `unconfirmed station kettle remembers ${targets || 'the cart'} tonight` };
     },
-    cap: 1,
+    cap: 9,
     historyGenerations: 7,
     timezone: 'UTC',
     log: { info() {}, warn() {} },
@@ -296,6 +296,27 @@ test('default refresh chains until every persona participates', async () => {
   assert.ok(result.refreshed >= 1);
   assert.deepEqual([...seen].sort(), ['p_a', 'p_b', 'p_c']);
   assert.deepEqual([...rumorTargets].sort(), ['p_a', 'p_b', 'p_c']);
+});
+
+test('default refresh honors a low cap without expanding for roster coverage', async () => {
+  const { store } = await tempStore();
+  let calls = 0;
+  const result = await refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    cap: 1,
+    strictCap: true,
+    generate: async () => {
+      calls += 1;
+      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID twice' };
+    },
+    historyGenerations: 7,
+    timezone: 'UTC',
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.refreshed, 1);
+  assert.equal(result.tidbits.length, 1);
 });
 
 test('default refresh fails when rumor targets never cover the roster', async () => {

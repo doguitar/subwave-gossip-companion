@@ -17,6 +17,14 @@ const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-5',
 };
 
+export function parseRefreshCount(value, name = 'count') {
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 1 || count > 10) {
+    throw new Error(`${name} must be an integer 1-10`);
+  }
+  return count;
+}
+
 export function normalizeProvider(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return 'openai';
@@ -127,9 +135,11 @@ export function loadConfig(env = process.env) {
     errors.push(...gossipTypesResult.errors);
   }
   const refreshCountRaw = env.GOSSIP_REFRESH_COUNT ?? '1';
-  const refreshCount = Number(refreshCountRaw);
-  if (!Number.isInteger(refreshCount) || refreshCount < 1 || refreshCount > 10) {
-    errors.push('GOSSIP_REFRESH_COUNT must be an integer 1-10');
+  let refreshCount = 1;
+  try {
+    refreshCount = parseRefreshCount(refreshCountRaw, 'GOSSIP_REFRESH_COUNT');
+  } catch (err) {
+    errors.push(err.message);
   }
   const ttsTimeoutMs = Number(env.GOSSIP_TTS_TIMEOUT_MS ?? String(5 * 60 * 1000));
   const ttsPollMs = Number(env.GOSSIP_TTS_POLL_MS ?? '3000');
@@ -163,7 +173,7 @@ export function loadConfig(env = process.env) {
     llmFixturePath,
     llmCallLogPath,
     operationalLogPath,
-    refreshCount: Number.isInteger(refreshCount) ? refreshCount : 1,
+    refreshCount,
     ttsTimeoutMs: Number.isFinite(ttsTimeoutMs) && ttsTimeoutMs > 0 ? ttsTimeoutMs : 5 * 60 * 1000,
     minRumorLength: Number.isInteger(minRumorLength) && minRumorLength > 0 ? minRumorLength : 20,
     ttsPollMs: Number.isFinite(ttsPollMs) && ttsPollMs >= 250 ? ttsPollMs : 3000,

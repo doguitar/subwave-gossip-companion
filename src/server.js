@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { parseRefreshCount } from './config.js';
 import { currentTidbits, gossipForActor } from './store.js';
 import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
@@ -84,7 +85,19 @@ export function createServer({
           res.end(JSON.stringify({ error: 'invalid JSON body' }));
           return;
         }
-        const cap = Number(url.searchParams.get('count') || body.count || config.refreshCount || 1);
+        const rawCount = url.searchParams.has('count')
+          ? url.searchParams.get('count')
+          : Object.hasOwn(body, 'count')
+            ? body.count
+            : config.refreshCount;
+        let cap;
+        try {
+          cap = parseRefreshCount(rawCount, 'refresh count');
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: err.message }));
+          return;
+        }
         const controller = new AbortController();
         req.once('aborted', () => controller.abort());
         const result = await refreshGossip({
@@ -95,7 +108,8 @@ export function createServer({
           summarizeSouls: summarizeSoulsFn,
           summarizeHouseRules: summarizeHouseRulesFn,
           reviewRounds: config.reviewRounds,
-          cap: Number.isInteger(cap) && cap > 0 ? Math.min(cap, 10) : 1,
+          cap,
+          strictCap: true,
           historyGenerations: config.gossipHistoryGenerations,
           timezone: config.timezone,
           minLength: config.minRumorLength,
