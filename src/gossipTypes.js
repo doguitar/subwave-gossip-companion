@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { DEFAULT_RUMOR_REGISTERS } from './register.js';
+import { PACKAGED_GOSSIP_TYPES_PATH, readPackagedGossipTypes } from './register.js';
 
 export function humanizeSlug(slug) {
   return String(slug || '')
@@ -12,11 +12,7 @@ export function humanizeSlug(slug) {
 }
 
 export function defaultGossipTypesFileEntries() {
-  return DEFAULT_RUMOR_REGISTERS.map(({ id, name, guidance }) => ({
-    slug: id,
-    name,
-    guidance,
-  }));
+  return readPackagedGossipTypes();
 }
 
 export const DEFAULT_GOSSIP_TARGET_MAX = 2;
@@ -98,10 +94,13 @@ export function parseGossipTypesJson(raw, { targetMax = DEFAULT_GOSSIP_TARGET_MA
 }
 
 export function ensureGossipTypesFile(typesPath) {
-  if (existsSync(typesPath)) return false;
+  if (existsSync(typesPath)) {
+    const existing = readFileSync(typesPath, 'utf8');
+    if (existing.trim()) return false;
+  }
   mkdirSync(path.dirname(typesPath), { recursive: true });
-  const payload = `${JSON.stringify(defaultGossipTypesFileEntries(), null, 2)}\n`;
-  writeFileSync(typesPath, payload, 'utf8');
+  const payload = readFileSync(PACKAGED_GOSSIP_TYPES_PATH, 'utf8');
+  writeFileSync(typesPath, payload.endsWith('\n') ? payload : `${payload}\n`, 'utf8');
   return true;
 }
 
