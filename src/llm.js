@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { appendLlmCall } from './callLog.js';
 import { personaSoul } from './roles.js';
 
@@ -299,25 +300,119 @@ export function parseLlmResponse(provider, data) {
   return extractJsonObject(content ?? data);
 }
 
-async function recordLlmCall(config, { kind, provider, model, request, prompt, response }) {
+const DIAGNOSTIC_VERSION = 1;
+const PROVIDER_DETAIL_LIMIT = 300;
+
+function redactProviderDetail(value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+  return text
+    .replace(/(authorization|x-api-key|x-goog-api-key)\s*[:=]\s*["']?[^,\s"'}]+/gi, '$1=[redacted]')
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+    .replace(/\b(?:sk-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]+)/g, '[redacted]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, PROVIDER_DETAIL_LIMIT);
+}
+
+function usageFromResponse(provider, data) {
+  const usage = provider === 'google' ? data?.usageMetadata : data?.usage;
+  if (!usage || typeof usage !== 'object') return undefined;
+  const inputTokens = usage.prompt_tokens ?? usage.input_tokens ?? usage.promptTokenCount;
+  const outputTokens = usage.completion_tokens ?? usage.output_tokens ?? usage.candidatesTokenCount;
+  const totalTokens = usage.total_tokens ?? usage.totalTokenCount;
+  return {
+    ...(Number.isFinite(inputTokens) ? { inputTokens } : {}),
+    ...(Number.isFinite(outputTokens) ? { outputTokens } : {}),
+    ...(Number.isFinite(totalTokens) ? { totalTokens } : {}),
+  };
+}
+
+async function recordLlmCall(config, record) {
+  if (!config.llmCallLogPath) return;
   await appendLlmCall(config.llmCallLogPath, {
+    version: DIAGNOSTIC_VERSION,
     at: new Date().toISOString(),
-    kind,
-    provider,
-    model,
-    url: request.url,
-    request: {
-      headers: {
-        ...request.headers,
-        'x-goog-api-key': request.headers['x-goog-api-key'] ? '[redacted]' : undefined,
-        Authorization: request.headers.Authorization ? '[redacted]' : undefined,
-        'x-api-key': request.headers['x-api-key'] ? '[redacted]' : undefined,
-      },
-      body: request.body,
-    },
-    prompt,
-    response,
+    ...record,
   });
+}
+
+async function invokeLlm({ config, kind, provider, model, request, fetchImpl, lifecycleId, retry = 0 }) {
+  const invocationId = randomUUID();
+  const startedAt = Date.now();
+  const base = { lifecycleId, invocationId, kind, provider, model, retry };
+  await recordLlmCall(config, { ...base, stage: 'start' });
+  let res;
+  try {
+    res = await fetchImpl(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+    });
+  } catch (err) {
+    await recordLlmCall(config, {
+      ...base, stage: 'transport-failure', elapsedMs: Date.now() - startedAt,
+      detail: redactProviderDetail(err?.message),
+    });
+    throw err;
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    await recordLlmCall(config, {
+      ...base, stage: 'http-failure', elapsedMs: Date.now() - startedAt,
+      status: res.status, detail: redactProviderDetail(detail),
+    });
+    const error = new Error(`LLM ${kind} request failed: HTTP ${res.status}${detail ? ` ${redactProviderDetail(detail)}` : ''}`);
+    error.status = res.status;
+    throw error;
+  }
+  let data;
+  try {
+    data = await res.json();
+    const payload = parseLlmResponse(provider, data);
+    await recordLlmCall(config, {
+      ...base, stage: 'success', elapsedMs: Date.now() - startedAt, status: res.status,
+      usage: usageFromResponse(provider, data),
+    });
+    return payload;
+  } catch (err) {
+    await recordLlmCall(config, {
+      ...base, stage: 'parse-failure', elapsedMs: Date.now() - startedAt,
+      status: res.status, detail: redactProviderDetail(err?.message),
+    });
+    throw err;
+  }
+}
+
+export async function preflightProvider({ config, fetchImpl = fetch, log }) {
+  const provider = config.llmProvider || 'openai';
+  const model = String(config.llmModel || DEFAULT_MODELS[provider] || '').trim();
+  if (!model) throw Object.assign(new Error('LLM model is required'), { code: 'CONFIG' });
+  const apiKey = config.llmApiKey;
+  const openaiBaseUrl = config.openaiBaseUrl || config.llmUrl || DEFAULT_OPENAI_BASE_URL;
+  const localOpenAI = provider === 'openai' && !/api\.openai\.com/i.test(openaiBaseUrl);
+  if (!apiKey && !localOpenAI) throw Object.assign(new Error('PROVIDER_KEY (or GOSSIP_LLM_API_KEY) is required'), { code: 'CONFIG' });
+  if (provider === 'anthropic' || localOpenAI) {
+    log?.info?.(`[gossip] LLM preflight provider=${provider} model=${model} capability=unsupported`);
+    return { provider, model, capability: 'unsupported' };
+  }
+  const url = provider === 'google'
+    ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`
+    : `${String(openaiBaseUrl).replace(/\/+$/, '')}/models/${encodeURIComponent(model)}`;
+  const headers = provider === 'google'
+    ? { 'x-goog-api-key': apiKey }
+    : { Authorization: `Bearer ${apiKey}` };
+  let response;
+  try {
+    response = await fetchImpl(url, { headers });
+  } catch (err) {
+    throw Object.assign(new Error(`LLM preflight failed: ${redactProviderDetail(err?.message)}`), { cause: err });
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw Object.assign(new Error(`LLM preflight failed: HTTP ${response.status}${detail ? ` ${redactProviderDetail(detail)}` : ''}`), { status: response.status });
+  }
+  log?.info?.(`[gossip] LLM preflight provider=${provider} model=${model} capability=validated`);
+  return { provider, model, capability: 'validated' };
 }
 
 export async function summarizePersonaSouls({
@@ -347,27 +442,10 @@ export async function summarizePersonaSouls({
       thinkingLevel: config.llmThinkingLevel,
     });
     if (request.body && provider === 'openai') request.body.max_tokens = 2000;
-    const res = await fetchImpl(request.url, {
-      method: 'POST',
-      headers: request.headers,
-      body: JSON.stringify(request.body),
+    const payload = await invokeLlm({
+      config, kind: 'soul-summary', provider, model, request, fetchImpl,
+      lifecycleId: `soul-summary:${persona?.id || persona?.name || randomUUID()}`,
     });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      const error = new Error(`LLM soul summary failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
-      error.status = res.status;
-      throw error;
-    }
-    const data = await res.json();
-    await recordLlmCall(config, {
-      kind: 'soul-summary',
-      provider,
-      model,
-      request,
-      prompt: { system: SOUL_SUMMARY_SYSTEM, user: soulSummaryUserPrompt(persona) },
-      response: data,
-    });
-    const payload = parseLlmResponse(provider, data);
     const summary = String(payload?.summary || '').trim();
     if (!summary) throw new Error(`LLM soul summary for ${persona?.name || persona?.id} was empty`);
     summaries.push({ id: persona.id, name: persona.name, summary });
@@ -402,27 +480,10 @@ export async function summarizeHouseRules({
     thinkingLevel: config.llmThinkingLevel,
   });
   if (request.body && provider === 'openai') request.body.max_tokens = 2000;
-  const res = await fetchImpl(request.url, {
-    method: 'POST',
-    headers: request.headers,
-    body: JSON.stringify(request.body),
+  const payload = await invokeLlm({
+    config, kind: 'house-rules-summary', provider, model, request, fetchImpl,
+    lifecycleId: 'house-rules-summary',
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    const error = new Error(`LLM house rules summary failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
-    error.status = res.status;
-    throw error;
-  }
-  const data = await res.json();
-  await recordLlmCall(config, {
-    kind: 'house-rules-summary',
-    provider,
-    model,
-    request,
-    prompt: { system: HOUSE_RULES_SUMMARY_SYSTEM, user: houseRulesSummaryUserPrompt(text) },
-    response: data,
-  });
-  const payload = parseLlmResponse(provider, data);
   const summary = String(payload?.summary || '').trim();
   if (!summary) throw new Error('LLM house rules summary was empty');
   return summary;
@@ -437,6 +498,7 @@ export async function generateSeed({
   existing = [],
   sessionTidbits = [],
   previousTidbit = '',
+  lifecycleId,
   fetchImpl = fetch,
   log,
 }) {
@@ -472,27 +534,10 @@ export async function generateSeed({
     user,
     thinkingLevel: config.llmThinkingLevel,
   });
-  const res = await fetchImpl(request.url, {
-    method: 'POST',
-    headers: request.headers,
-    body: JSON.stringify(request.body),
+  return invokeLlm({
+    config, kind: 'seed', provider, model, request, fetchImpl,
+    lifecycleId: lifecycleId || `seed:${day}:${roles?.teller?.id || 'unknown'}`,
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    const error = new Error(`LLM seed request failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
-    error.status = res.status;
-    throw error;
-  }
-  const data = await res.json();
-  await recordLlmCall(config, {
-    kind: 'seed',
-    provider,
-    model,
-    request,
-    prompt: { system: systemPrompt, user },
-    response: data,
-  });
-  return parseLlmResponse(provider, data);
 }
 
 export async function generateReview({
@@ -502,6 +547,7 @@ export async function generateReview({
   tidbits,
   round,
   totalRounds,
+  lifecycleId,
   fetchImpl = fetch,
   log,
 }) {
@@ -534,25 +580,8 @@ export async function generateReview({
     user,
     thinkingLevel: config.llmThinkingLevel,
   });
-  const res = await fetchImpl(request.url, {
-    method: 'POST',
-    headers: request.headers,
-    body: JSON.stringify(request.body),
+  return invokeLlm({
+    config, kind: 'review', provider, model, request, fetchImpl,
+    lifecycleId: lifecycleId || `review:${day}:${round}`,
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    const error = new Error(`LLM review request failed: HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
-    error.status = res.status;
-    throw error;
-  }
-  const data = await res.json();
-  await recordLlmCall(config, {
-    kind: 'review',
-    provider,
-    model,
-    request,
-    prompt: { system: systemPrompt, user },
-    response: data,
-  });
-  return parseLlmResponse(provider, data);
 }
