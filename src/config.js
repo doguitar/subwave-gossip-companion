@@ -249,8 +249,9 @@ export function requireConfig(env = process.env) {
 }
 
 export function applyDotEnv(filePath = path.resolve('.env'), env = process.env) {
+  const target = path.resolve(filePath || '.env');
   try {
-    const raw = readFileSync(filePath, 'utf8');
+    const raw = readFileSync(target, 'utf8');
     for (const line of raw.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
@@ -261,7 +262,11 @@ export function applyDotEnv(filePath = path.resolve('.env'), env = process.env) 
       if (env[key] == null || env[key] === '') env[key] = value;
     }
   } catch (err) {
-    if (err && err.code !== 'ENOENT') throw err;
+    if (err && err.code === 'ENOENT') return env;
+    const failure = new Error(`Cannot read env file ${target}: ${err?.message || err}`);
+    failure.code = err?.code;
+    failure.cause = err;
+    throw failure;
   }
   return env;
 }

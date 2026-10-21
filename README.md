@@ -4,7 +4,7 @@ A persona-aware fictional gossip companion for SUB/WAVE. It generates linked tel
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set the Subwave credentials and LLM provider:
+Copy `.env.example` to `.env` and set the Subwave credentials and LLM provider. With no `--base-dir`, the CLI loads `./.env`. If `GOSSIP_BASE_DIR` is already set, it loads `$GOSSIP_BASE_DIR/.env` instead. `--base-dir` wins over that variable and loads `<base-dir>/.env`. A missing file is ignored; any other read error names the path and stops startup.
 
 ```dotenv
 GOSSIP_BASE_DIR=.
