@@ -111,7 +111,7 @@ test('operator docs state operational log size and retention', async () => {
     assert.match(text, /604800000/);
     assert.match(text, /seven days/);
     assert.match(text, /logs\/gossip\.log/);
-    assert.match(text, /gossip\.<epoch>\.log/);
+    assert.match(text, /gossip\.<milliseconds>\.log/);
   }
 });
 
