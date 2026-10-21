@@ -306,9 +306,10 @@ test('default refresh honors a low cap without expanding for roster coverage', a
     adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
     cap: 1,
     strictCap: true,
-    generate: async () => {
+    generate: async ({ roles }) => {
       calls += 1;
-      return { rumor: 'unconfirmed the booth kettle whistled through the legal ID twice' };
+      const targets = roles.targets.map((persona) => persona.name).join(' ');
+      return { rumor: `unconfirmed ${targets || 'the booth kettle'} whistled through the legal ID twice` };
     },
     historyGenerations: 7,
     timezone: 'UTC',

@@ -128,6 +128,7 @@ test('POST /gossip/refresh forwards one requested count without roster expansion
       calls += 1;
       return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
     },
+    () => ({ teller: PERSONA_A, hearers: [PERSONA_B], targets: [] }),
   );
   const res = await fetch(`${base}/gossip/refresh?count=1`, {
     method: 'POST',
