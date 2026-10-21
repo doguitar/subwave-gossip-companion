@@ -115,6 +115,27 @@ test('operator docs state operational log size and retention', async () => {
   }
 });
 
+test('operator reference covers commands, routes, env, and privacy', async () => {
+  const [readme, example, reference] = await Promise.all([
+    readArtifact('README.md'),
+    readArtifact('.env.example'),
+    readArtifact('docs/reference.md'),
+  ]);
+  assert.match(readme, /docs\/reference\.md/);
+  for (const command of ['serve', 'seed', 'refresh', 'generate', 'summarize-souls', 'ingest-spoken']) {
+    assert.match(reference, new RegExp(command));
+  }
+  for (const route of ['GET /', 'GET /health', 'GET /ready', 'POST /refresh', 'POST /gossip/refresh', 'GET /gossip.rss']) {
+    assert.match(reference, new RegExp(route.replaceAll('/', '\\/')));
+  }
+  for (const key of ['SUBWAVE_API_TOKEN', 'GOSSIP_LLM_LOG_CONTENT', 'GOSSIP_TTS_TIMEOUT_MS', 'GOSSIP_TTS_POLL_MS']) {
+    assert.match(example, new RegExp(key));
+    assert.match(reference, new RegExp(key));
+  }
+  assert.match(reference, /unauthenticated/);
+  assert.match(reference, /full/);
+});
+
 test('operator README documents corrupt state refusal and manual restore', async () => {
   const readme = await readArtifact('README.md');
   assert.match(readme, /exits non-zero/);
