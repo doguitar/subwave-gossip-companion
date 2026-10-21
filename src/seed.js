@@ -221,6 +221,7 @@ export async function seedGossip({
   const sessionTexts = [];
   const batchTidbits = [];
   const batchRoles = new Map();
+  let review = { accepted: 0, rejected: 0, stale: 0 };
   const seen = new Set(currentTidbits(store.snapshot()).map(tidbitKey));
   let seeded = 0;
   let rejected = 0;
@@ -263,7 +264,7 @@ export async function seedGossip({
     seeded += 1;
   }
   if (batchTidbits.length && reviewRounds > 0) {
-    const { tidbits: reviewed } = await reviewGossipBatch({
+    const result = await reviewGossipBatch({
       tidbits: batchTidbits,
       rolesById: batchRoles,
       roster,
@@ -274,6 +275,8 @@ export async function seedGossip({
       log,
       minLength,
     });
+    const { tidbits: reviewed } = result;
+    review = result;
     const byId = new Map(reviewed.map((t) => [t.id, t]));
     await store.mutate((state) => {
       state.tidbits = state.tidbits.map((t) => byId.get(t.id) || t);
@@ -290,7 +293,7 @@ export async function seedGossip({
     });
   }
   log.info?.(`[gossip] seeded ${seeded} tidbits for ${day}`);
-  return { seeded, rejected, day, skipped: seeded === 0 };
+  return { seeded, rejected, day, skipped: seeded === 0, review };
 }
 
 
@@ -397,8 +400,9 @@ export async function refreshGossip({
     });
   }
   let finalTidbits = tidbits;
+  let review = { accepted: 0, rejected: 0, stale: 0 };
   if (tidbits.length && reviewRounds > 0) {
-    const { tidbits: reviewed } = await reviewGossipBatch({
+    const result = await reviewGossipBatch({
       tidbits,
       rolesById: batchRoles,
       roster,
@@ -409,7 +413,8 @@ export async function refreshGossip({
       log,
       minLength,
     });
-    finalTidbits = reviewed;
+    finalTidbits = result.tidbits;
+    review = result;
   }
   await store.mutate((state) => {
     state.tidbits = finalTidbits;
@@ -417,7 +422,7 @@ export async function refreshGossip({
     state.gossipComments = pruneGossipCommentsToTidbits(finalTidbits, state.gossipComments);
   });
   log.info?.(`[gossip] refreshed board with ${tidbits.length} linked tidbit(s) for ${day}`);
-  return { refreshed: finalTidbits.length, rejected: rejected.length, day, tidbits: finalTidbits };
+  return { refreshed: finalTidbits.length, rejected: rejected.length, day, tidbits: finalTidbits, review };
 }
 
 async function timezoneFromSchedule(adapter) {

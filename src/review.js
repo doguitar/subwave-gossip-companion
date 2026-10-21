@@ -2,26 +2,13 @@ import { quotedRumorFromTidbit } from './llm.js';
 import { formatRumorForOperationalLog } from './log.js';
 import { wrapRumor } from './roles.js';
 import { tidbitKey } from './store.js';
-import { validateRumor } from './validate.js';
+import { validateReviewRumor } from './validate.js';
 
-export function rolesFromTidbit(tidbit, roster) {
-  const byId = new Map((roster || []).map((p) => [p.id, p]));
-  const teller = byId.get(tidbit.tellerPersonaId);
-  if (!teller) return null;
-  const hearerIds = tidbit.hearerPersonaIds === null ? [] : (tidbit.hearerPersonaIds || []);
-  const hearers = hearerIds.map((id) => byId.get(id)).filter(Boolean);
-  const quoted = quotedRumorFromTidbit(tidbit.text);
-  const blocked = new Set([teller.id, ...hearers.map((p) => p.id)]);
-  const targets = (roster || []).filter(
-    (p) => p?.id && !blocked.has(p.id) && quoted.toLowerCase().includes(String(p.name).toLowerCase()),
-  );
-  return { teller, hearers, targets };
-}
-
-export function applyReviewRevisions(tidbits, revisions, rolesById, roster, { minLength = 20, log, round } = {}) {
+export function applyReviewRevisions(tidbits, revisions, rolesById, { minLength = 20, log, round } = {}) {
   const keys = new Set();
   let accepted = 0;
   let rejected = 0;
+  let stale = 0;
   const next = tidbits.map((tidbit) => {
     const rumor = revisions.get(tidbit.id);
     if (typeof rumor !== 'string' || !rumor.trim()) {
@@ -29,21 +16,21 @@ export function applyReviewRevisions(tidbits, revisions, rolesById, roster, { mi
       return tidbit;
     }
     const meta = rolesById.get(tidbit.id);
-    const roles = meta?.roles || rolesFromTidbit(tidbit, roster);
-    if (!roles) {
-      rejected += 1;
-      log?.warn?.(`[gossip] review rejected tidbit=${tidbit.id}: missing-roles`);
+    if (!meta?.roles || !meta?.register) {
+      stale += 1;
+      log?.warn?.(`[gossip] review stale tidbit=${tidbit.id}: missing-canonical-roles`);
       keys.add(tidbitKey(tidbit));
       return tidbit;
     }
-    const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: 240 });
+    const check = validateReviewRumor(rumor, { roles: meta.roles, register: meta.register, minLength, maxLength: 240 });
     if (!check.ok) {
       rejected += 1;
       log?.warn?.(`[gossip] review rejected tidbit=${tidbit.id}: ${check.reason}`);
+      if (!meta.acceptedText) stale += 1;
       keys.add(tidbitKey(tidbit));
       return tidbit;
     }
-    const text = wrapRumor(roles, rumor);
+    const text = wrapRumor(meta.roles, rumor);
     const candidate = { ...tidbit, text };
     const key = tidbitKey(candidate);
     if (keys.has(key)) {
@@ -53,6 +40,7 @@ export function applyReviewRevisions(tidbits, revisions, rolesById, roster, { mi
       return tidbit;
     }
     accepted += 1;
+    meta.acceptedText = text;
     keys.add(key);
     if (tidbit.text !== text) {
       const before = quotedRumorFromTidbit(tidbit.text);
@@ -63,7 +51,7 @@ export function applyReviewRevisions(tidbits, revisions, rolesById, roster, { mi
     }
     return candidate;
   });
-  return { tidbits: next, accepted, rejected };
+  return { tidbits: next, accepted, rejected, stale };
 }
 
 export async function reviewGossipBatch({
@@ -78,10 +66,11 @@ export async function reviewGossipBatch({
   minLength = 20,
 }) {
   if (!reviewRounds || reviewRounds <= 0 || !tidbits.length || !generateReview) {
-    return { tidbits, roundsCompleted: 0 };
+    return { tidbits, roundsCompleted: 0, accepted: 0, rejected: 0, stale: 0 };
   }
   let current = tidbits;
   let roundsCompleted = 0;
+  const outcomes = { accepted: 0, rejected: 0, stale: 0 };
   log.info?.(`[gossip] review starting tidbits=${current.length} rounds=${reviewRounds}`);
   for (let round = 1; round <= reviewRounds; round += 1) {
     try {
@@ -93,26 +82,29 @@ export async function reviewGossipBatch({
           id: t.id,
           text: t.text,
           quotedRumor: quotedRumorFromTidbit(t.text),
-          roles: rolesById.get(t.id)?.roles || rolesFromTidbit(t, roster),
+          roles: rolesById.get(t.id)?.roles,
           register: rolesById.get(t.id)?.register,
         })),
         round,
         totalRounds: reviewRounds,
       });
       const revisions = reviewRumorsFromPayload(payload, current);
-      const merged = applyReviewRevisions(current, revisions, rolesById, roster, { minLength, log, round });
+      const merged = applyReviewRevisions(current, revisions, rolesById, { minLength, log, round });
       current = merged.tidbits;
       roundsCompleted = round;
+      outcomes.accepted += merged.accepted;
+      outcomes.rejected += merged.rejected;
+      outcomes.stale += merged.stale;
       log.info?.(
-        `[gossip] review round ${round}/${reviewRounds} accepted=${merged.accepted} rejected=${merged.rejected}`,
+        `[gossip] review round ${round}/${reviewRounds} accepted=${merged.accepted} rejected=${merged.rejected} stale=${merged.stale}`,
       );
     } catch (err) {
       log.warn?.(`[gossip] review round ${round} failed: ${err.message}`);
       break;
     }
   }
-  log.info?.(`[gossip] review finished roundsCompleted=${roundsCompleted}`);
-  return { tidbits: current, roundsCompleted };
+  log.info?.(`[gossip] review finished roundsCompleted=${roundsCompleted} accepted=${outcomes.accepted} rejected=${outcomes.rejected} stale=${outcomes.stale}`);
+  return { tidbits: current, roundsCompleted, ...outcomes };
 }
 
 export function reviewRumorsFromPayload(payload, tidbits) {
