@@ -179,20 +179,27 @@ export class GossipStore {
   }
 
   async #readFromDisk({ persistMissing = false } = {}) {
+    let raw;
     try {
-      const raw = await readFile(this.filePath, 'utf8');
-      this.state = normalizeState(JSON.parse(raw));
+      raw = await readFile(this.filePath, 'utf8');
     } catch (err) {
       if (err && err.code === 'ENOENT') {
         this.state = emptyState();
         if (persistMissing) await this.#persist(this.state);
-      } else if (err instanceof SyntaxError) {
-        console.warn(`[gossip] state file is not valid JSON; using empty store (${err.message})`);
-        this.state = emptyState();
-      } else {
-        throw err;
+        return this.snapshot();
       }
+      throw err;
     }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        throw new Error(`${this.filePath} is not valid JSON`);
+      }
+      throw err;
+    }
+    this.state = normalizeState(parsed);
     return this.snapshot();
   }
 

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import {
   appendGeneratedGossipHistory,
   currentTidbits,
   generatedGossipHistory,
+  GossipStore,
   gossipComments,
   gossipForActor,
   legacyTidbitId,
@@ -15,6 +18,15 @@ import {
   tidbitsKnownBy,
 } from '../src/store.js';
 import { PERSONA_A, PERSONA_B, tempStore, tidbit } from './helpers.js';
+
+const EMPTY_BOARD = { tidbits: [], generatedGossipHistory: [], gossipComments: [] };
+
+async function storeWithBytes(contents) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-'));
+  const filePath = path.join(dir, 'state.json');
+  await writeFile(filePath, contents);
+  return { store: new GossipStore(filePath), filePath };
+}
 
 test('store loads reduced shape and persists a queued mutation atomically', async () => {
   const { store, read } = await tempStore();
@@ -318,4 +330,76 @@ test('excluding the only known rumor yields an empty list; a missing actor keeps
   assert.deepEqual(gossipForActor(state, [PERSONA_A.id], 'persona-a', 'Test Show'), []);
   const noActor = gossipForActor(state, [PERSONA_A.id], '', 'Test Show').map((t) => t.text);
   assert.deepEqual(noActor, ['Only rumor']);
+});
+
+test('corrupt state bytes survive a failed load, reload, and mutate', async () => {
+  const corruptDocuments = [
+    ['truncated JSON', '{"tidbits":'],
+    ['an empty file', ''],
+    ['a trailing comma', '{"tidbits":[],}'],
+  ];
+  for (const [label, corrupt] of corruptDocuments) {
+    const loaded = await storeWithBytes(corrupt);
+    await assert.rejects(loaded.store.load(), (err) => {
+      assert.equal(err.message, `${loaded.filePath} is not valid JSON`);
+      return true;
+    });
+    assert.equal(await readFile(loaded.filePath, 'utf8'), corrupt, label);
+    assert.deepEqual(loaded.store.snapshot(), EMPTY_BOARD);
+
+    const reloaded = await tempStore({ tidbits: [tidbit({ id: 'kept', text: 'kept rumor' })] });
+    const snapshot = reloaded.store.snapshot();
+    await writeFile(reloaded.filePath, corrupt);
+    await assert.rejects(reloaded.store.reload(), (err) => {
+      assert.equal(err.message, `${reloaded.filePath} is not valid JSON`);
+      return true;
+    });
+    assert.equal(await readFile(reloaded.filePath, 'utf8'), corrupt, label);
+    assert.deepEqual(reloaded.store.snapshot(), snapshot);
+
+    let mutated = false;
+    await assert.rejects(reloaded.store.mutate(() => {
+      mutated = true;
+    }), (err) => {
+      assert.equal(err.message, `${reloaded.filePath} is not valid JSON`);
+      return true;
+    });
+    assert.equal(mutated, false);
+    assert.equal(await readFile(reloaded.filePath, 'utf8'), corrupt, label);
+    assert.deepEqual(reloaded.store.snapshot(), snapshot);
+  }
+});
+
+test('a missing state file loads and reloads as a persisted empty board', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-'));
+  const filePath = path.join(dir, 'state.json');
+  const loaded = await new GossipStore(filePath).load();
+  assert.deepEqual(loaded, EMPTY_BOARD);
+  assert.deepEqual(JSON.parse(await readFile(filePath, 'utf8')), EMPTY_BOARD);
+
+  await rm(filePath);
+  const reloaded = await new GossipStore(filePath).reload();
+  assert.deepEqual(reloaded, EMPTY_BOARD);
+  assert.deepEqual(JSON.parse(await readFile(filePath, 'utf8')), EMPTY_BOARD);
+});
+
+test('parseable empty and legacy documents still normalize on load', async () => {
+  for (const raw of ['{}', 'null']) {
+    const { store, filePath } = await storeWithBytes(raw);
+    assert.deepEqual(await store.load(), EMPTY_BOARD);
+    assert.equal(await readFile(filePath, 'utf8'), raw);
+  }
+
+  const legacy = JSON.stringify({ tidbits: [tidbit({ text: 'legacy item' })] });
+  const { store, filePath } = await storeWithBytes(legacy);
+  const snap = await store.load();
+  assert.equal(snap.tidbits.length, 1);
+  assert.equal(snap.tidbits[0].text, 'legacy item');
+  assert.equal(
+    snap.tidbits[0].id,
+    legacyTidbitId({ text: 'legacy item', createdAt: '2026-09-19T00:00:00.000Z' }),
+  );
+  assert.deepEqual(snap.generatedGossipHistory, []);
+  assert.deepEqual(snap.gossipComments, []);
+  assert.equal(await readFile(filePath, 'utf8'), legacy);
 });

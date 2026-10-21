@@ -71,3 +71,16 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
     /<Config Name="GOSSIP_REFRESH_SECRET" Target="GOSSIP_REFRESH_SECRET" Default=""[^>]*Mask="true"/,
   );
 });
+
+test('operator README documents corrupt state refusal and manual restore', async () => {
+  const readme = await readArtifact('README.md');
+  assert.match(readme, /exits non-zero/);
+  assert.match(readme, /data\/gossip-state\.json/);
+  assert.match(readme, /under the base directory/);
+  assert.match(readme, /GOSSIP_STATE_PATH/);
+  assert.match(readme, /does not rewrite/);
+  assert.match(readme, /replace the file with a backup/);
+  assert.match(readme, /external editor/);
+  assert.match(readme, /Do not delete the file/);
+  assert.match(readme, /empty board/);
+});
