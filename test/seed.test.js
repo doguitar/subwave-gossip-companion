@@ -1084,3 +1084,102 @@ test('seed review does not echo per-tidbit line when revision leaves text unchan
   assert.ok(physicalLines.some((line) => line.includes('tidbit accepted')));
   assert.ok(!physicalLines.some((line) => line.includes('review revised')));
 });
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+test('seed and refresh generation lifecycles execute in process-local FIFO order', async () => {
+  const { store } = await tempStore();
+  const adapter = stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] });
+  const firstGeneration = deferred();
+  const firstStarted = deferred();
+  const calls = [];
+  const refresh = refreshGossip({
+    store,
+    adapter,
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => {
+      calls.push('refresh-1');
+      firstStarted.resolve();
+      await firstGeneration.promise;
+      return { rumor: 'unconfirmed the first refresh held the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  await firstStarted.promise;
+  const seed = seedGossip({
+    store,
+    adapter,
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => {
+      calls.push('seed');
+      return { rumor: 'word is Gamma queued behind the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  const secondRefresh = refreshGossip({
+    store,
+    adapter,
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => {
+      calls.push('refresh-2');
+      return { rumor: 'unconfirmed the second refresh replaced the legal ID' };
+    },
+    log: { info() {}, warn() {} },
+  });
+  assert.deepEqual(calls, ['refresh-1']);
+  firstGeneration.resolve();
+  await Promise.all([refresh, seed, secondRefresh]);
+  assert.deepEqual(calls, ['refresh-1', 'seed', 'refresh-2']);
+  assert.equal(store.snapshot().tidbits.length, 1);
+  assert.match(store.snapshot().tidbits[0].text, /second refresh/);
+  assert.deepEqual(store.snapshot().generatedGossipHistory.at(-1), [store.snapshot().tidbits[0].text]);
+});
+
+test('queued validation failure and abort release later gossip generation', async () => {
+  const { store } = await tempStore();
+  const controller = new AbortController();
+  const failed = refreshGossip({
+    store,
+    adapter: { ...stubAdapter(), getRosterPersonas: async () => [] },
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => ({ rumor: 'unused' }),
+    log: { info() {}, warn() {} },
+  });
+  const aborted = seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    signal: controller.signal,
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => ({ rumor: 'unused' }),
+    log: { info() {}, warn() {} },
+  });
+  controller.abort();
+  const later = seedGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => hallway,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => ({ rumor: 'word is Gamma reached the board after failures' }),
+    log: { info() {}, warn() {} },
+  });
+  await assert.rejects(failed, /cannot refresh gossip without a persona roster/);
+  await assert.rejects(aborted, { name: 'AbortError' });
+  const result = await later;
+  assert.equal(result.seeded, 1);
+});

@@ -85,6 +85,8 @@ export function createServer({
           return;
         }
         const cap = Number(url.searchParams.get('count') || body.count || config.refreshCount || 1);
+        const controller = new AbortController();
+        req.once('aborted', () => controller.abort());
         const result = await refreshGossip({
           store,
           adapter,
@@ -100,7 +102,9 @@ export function createServer({
           log,
           pickRoles,
           rumorRegisters: config.rumorRegisters,
+          signal: controller.signal,
         });
+        if (res.destroyed) return;
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(result));
         return;
@@ -154,6 +158,7 @@ export function createServer({
         follow.afterSkillFetch({ show, since: new Date() });
       }
     } catch (err) {
+      if (res.destroyed) return;
       log.error?.(`[gossip] request failed: ${err.message}`);
       const status = err.status && Number.isInteger(err.status) ? err.status : 500;
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });

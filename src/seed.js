@@ -13,6 +13,31 @@ import { validateRumor } from './validate.js';
 import { formatRumorForOperationalLog } from './log.js';
 import { reviewGossipBatch } from './review.js';
 
+let generationQueue = Promise.resolve();
+
+function abortError() {
+  return Object.assign(new Error('gossip generation aborted'), { name: 'AbortError' });
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError();
+}
+
+function serializeGeneration(operation, signal) {
+  const previous = generationQueue;
+  let release;
+  generationQueue = new Promise((resolve) => {
+    release = resolve;
+  });
+  return previous
+    .catch(() => {})
+    .then(async () => {
+      throwIfAborted(signal);
+      return operation();
+    })
+    .finally(release);
+}
+
 export function stationDay(now = new Date(), timeZone = 'UTC') {
   try {
     return new Intl.DateTimeFormat('en-CA', {
@@ -205,6 +230,13 @@ function refreshCompletenessShortfall(involved, targetCovered, roster) {
 }
 
 export async function seedGossip({
+  signal,
+  ...options
+}) {
+  return serializeGeneration(() => seedGossipOperation(options, signal), signal);
+}
+
+async function seedGossipOperation({
   store,
   adapter,
   generate,
@@ -222,7 +254,8 @@ export async function seedGossip({
   generateReview,
   summarizeSouls,
   summarizeHouseRules,
-}) {
+}, signal) {
+  throwIfAborted(signal);
   const lifecycleId = randomUUID();
   const startedAt = Date.now();
   const chooseRoles = pickRoles || pickGossipRoles;
@@ -236,6 +269,7 @@ export async function seedGossip({
   ]);
   const roster = await rosterWithSummaries(loadedRoster, summarizeSouls);
   const houseRules = summarizeHouseRules ? await summarizeHouseRules(loadedHouseRules) : loadedHouseRules;
+  throwIfAborted(signal);
   const tz = timezone || (await timezoneFromSchedule(adapter)) || 'UTC';
   const day = stationDay(now, tz);
 
@@ -311,6 +345,7 @@ export async function seedGossip({
       if (updated) sessionTexts[i] = updated.text;
     }
   }
+  throwIfAborted(signal);
   if (batchTidbits.length || sessionTexts.length || historyGenerations === 0) {
     await store.mutate((state) => {
       state.tidbits.push(...batchTidbits.map((tidbit) => reviewedById.get(tidbit.id) || tidbit));
@@ -323,6 +358,13 @@ export async function seedGossip({
 
 
 export async function refreshGossip({
+  signal,
+  ...options
+}) {
+  return serializeGeneration(() => refreshGossipOperation(options, signal), signal);
+}
+
+async function refreshGossipOperation({
   store,
   adapter,
   generate,
@@ -340,7 +382,8 @@ export async function refreshGossip({
   generateReview,
   summarizeSouls,
   summarizeHouseRules,
-}) {
+}, signal) {
+  throwIfAborted(signal);
   const lifecycleId = randomUUID();
   const startedAt = Date.now();
   const chooseRoles = pickRoles || pickGossipRoles;
@@ -354,6 +397,7 @@ export async function refreshGossip({
   ]);
   const roster = await rosterWithSummaries(loadedRoster, summarizeSouls);
   const houseRules = summarizeHouseRules ? await summarizeHouseRules(loadedHouseRules) : loadedHouseRules;
+  throwIfAborted(signal);
   if (!roster.length) {
     throw Object.assign(new Error('cannot refresh gossip without a persona roster'), { status: 503 });
   }
@@ -450,6 +494,7 @@ export async function refreshGossip({
     finalTidbits = result.tidbits;
     review = result;
   }
+  throwIfAborted(signal);
   await store.mutate((state) => {
     state.tidbits = finalTidbits;
     appendGeneratedGossipHistory(state, finalTidbits.map((t) => t.text), historyGenerations);
