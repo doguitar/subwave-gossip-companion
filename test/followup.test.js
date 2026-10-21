@@ -354,3 +354,69 @@ test('formatOnAirTidbit unwraps nested corkboard attribution before persistence'
   }, [PERSONA_A, PERSONA_B], [PERSONA_A]);
   assert.equal(item.text, 'Alpha said on air, "I saw Carol leave with the transmitter."');
 });
+
+test('watcher retries transient fetch failures and reports one classified terminal result', async () => {
+  let calls = 0;
+  const diagnostics = [];
+  const line = { kind: 'station-gossip', text: 'Word is Gamma hid the violet microphone in the green room.', t: '2026-10-20T01:00:00.000Z' };
+  const result = await waitForStationGossipTts({
+    adapter: {
+      async getDebug() {
+        calls += 1;
+        if (calls === 1) throw new Error('temporary outage');
+        return { tts: { recentCalls: [line] } };
+      },
+    },
+    since: new Date('2026-10-20T00:59:00.000Z'),
+    timeoutMs: 30,
+    settleMs: 1,
+    intervalMs: 1,
+    sleep: async () => {},
+    log: { info(message) { diagnostics.push(message); }, warn(message) { diagnostics.push(message); } },
+  });
+  assert.equal(result.text, line.text);
+  assert.equal(result.watch.outcome, 'matched-speech');
+  assert.equal(result.watch.fetchErrors, 1);
+  assert.equal(diagnostics.filter((message) => String(message).includes('tts watcher')).length, 1);
+});
+
+test('watcher classifies no-air and unmatched speech terminal outcomes', async () => {
+  const outcomes = [];
+  const watch = async (payload) => waitForStationGossipTts({
+    adapter: { async getDebug() { return payload; } },
+    since: new Date('2026-10-20T00:59:00.000Z'),
+    timeoutMs: 5,
+    intervalMs: 1,
+    sleep: async () => {},
+    onOutcome(result) { outcomes.push(result.outcome); },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal(await watch({ tts: { recentCalls: [] } }), null);
+  assert.equal(await watch({ tts: { recentCalls: [{ kind: 'music', text: 'A song', t: '2026-10-20T01:00:00.000Z' }] } }), null);
+  assert.deepEqual(outcomes, ['no-segment', 'unmatched-speech']);
+});
+
+test('on-air wrapper text correlates with the inner quoted rumor thread', async () => {
+  const { store, read } = await tempStore();
+  const rumor = 'Word is Gamma hid the violet microphone in the green room after midnight.';
+  await store.mutate((state) => {
+    state.tidbits.push({ id: 'wrapped-source', threadId: 'wrapped-thread', text: `Alpha told Beta, "${rumor}"`, createdAt: '2026-10-20T00:00:00.000Z', tellerPersonaId: PERSONA_A.id, hearerPersonaIds: [PERSONA_B.id] });
+  });
+  await appendGeneratedGossip({
+    store,
+    roster: [PERSONA_A, PERSONA_B],
+    showPersonas: [PERSONA_A],
+    spoken: { kind: 'station-gossip', text: `Alpha said on air, "${rumor}"`, meta: { personaId: PERSONA_A.id, personaName: PERSONA_A.name } },
+    log: { info() {}, warn() {} },
+  });
+  assert.equal((await read()).tidbits.at(-1).threadId, 'wrapped-thread');
+});
+
+test('cohosted explicit speaker wins when session metadata is sparse', () => {
+  const item = formatOnAirTidbit({
+    kind: 'station-gossip-cohosted',
+    text: 'Word is Gamma hid the violet microphone in the green room.',
+    meta: { personaId: PERSONA_B.id, personaName: PERSONA_B.name },
+  }, [PERSONA_A, PERSONA_B], [PERSONA_A], { messages: [] });
+  assert.equal(item.tellerPersonaId, PERSONA_B.id);
+});
