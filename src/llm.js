@@ -334,17 +334,28 @@ async function recordLlmCall(config, record) {
   await appendLlmCall(config.llmCallLogPath, shaped);
 }
 
-async function invokeLlm({ config, kind, provider, model, request, fetchImpl, lifecycleId, retry = 0 }) {
+function throwIfLlmAborted(signal) {
+  if (!signal?.aborted) return;
+  const shutdown = signal.reason === 'shutdown' || signal.reason?.reason === 'shutdown';
+  throw Object.assign(
+    new Error(shutdown ? 'shutting down' : 'gossip generation aborted'),
+    { name: 'AbortError', ...(shutdown ? { reason: 'shutdown', status: 503 } : {}) },
+  );
+}
+
+async function invokeLlm({ config, kind, provider, model, request, fetchImpl, lifecycleId, retry = 0, signal }) {
   const invocationId = randomUUID();
   const startedAt = Date.now();
   const base = { lifecycleId, invocationId, kind, provider, model, retry };
   await recordLlmCall(config, { ...base, stage: 'start' });
   let res;
   try {
+    throwIfLlmAborted(signal);
     res = await fetchImpl(request.url, {
       method: 'POST',
       headers: request.headers,
       body: JSON.stringify(request.body),
+      ...(signal ? { signal } : {}),
     });
   } catch (err) {
     await recordLlmCall(config, {
@@ -418,6 +429,7 @@ export async function summarizePersonaSouls({
   personas = [],
   fetchImpl = fetch,
   log,
+  signal,
 }) {
   const provider = config.llmProvider || 'openai';
   const apiKey = config.llmApiKey;
@@ -429,6 +441,7 @@ export async function summarizePersonaSouls({
   }
   const summaries = [];
   for (const persona of personas) {
+    throwIfLlmAborted(signal);
     log?.info?.(`[gossip] soul summary starting name=${persona?.name || persona?.id}`);
     const request = buildLlmRequest({
       provider,
@@ -443,6 +456,7 @@ export async function summarizePersonaSouls({
     const payload = await invokeLlm({
       config, kind: 'soul-summary', provider, model, request, fetchImpl,
       lifecycleId: `soul-summary:${persona?.id || persona?.name || randomUUID()}`,
+      signal,
     });
     const summary = String(payload?.summary || '').trim();
     if (!summary) throw new Error(`LLM soul summary for ${persona?.name || persona?.id} was empty`);
@@ -456,6 +470,7 @@ export async function summarizeHouseRules({
   houseRules = '',
   fetchImpl = fetch,
   log,
+  signal,
 }) {
   const text = String(houseRules || '').trim();
   if (!text) return '';
@@ -478,9 +493,11 @@ export async function summarizeHouseRules({
     thinkingLevel: config.llmThinkingLevel,
   });
   if (request.body && provider === 'openai') request.body.max_tokens = 2000;
+  throwIfLlmAborted(signal);
   const payload = await invokeLlm({
     config, kind: 'house-rules-summary', provider, model, request, fetchImpl,
     lifecycleId: 'house-rules-summary',
+    signal,
   });
   const summary = String(payload?.summary || '').trim();
   if (!summary) throw new Error('LLM house rules summary was empty');
@@ -498,6 +515,7 @@ export async function generateSeed({
   lifecycleId,
   fetchImpl = fetch,
   log,
+  signal,
 }) {
   const systemPrompt = config.systemPrompt || SEED_SYSTEM;
 
@@ -530,9 +548,11 @@ export async function generateSeed({
     user,
     thinkingLevel: config.llmThinkingLevel,
   });
+  throwIfLlmAborted(signal);
   return invokeLlm({
     config, kind: 'seed', provider, model, request, fetchImpl,
     lifecycleId: lifecycleId || `seed:${day}:${roles?.teller?.id || 'unknown'}`,
+    signal,
   });
 }
 
@@ -546,6 +566,7 @@ export async function generateReview({
   lifecycleId,
   fetchImpl = fetch,
   log,
+  signal,
 }) {
   const systemPrompt = REVIEW_SYSTEM;
   const provider = config.llmProvider || 'openai';
@@ -576,8 +597,10 @@ export async function generateReview({
     user,
     thinkingLevel: config.llmThinkingLevel,
   });
+  throwIfLlmAborted(signal);
   return invokeLlm({
     config, kind: 'review', provider, model, request, fetchImpl,
     lifecycleId: lifecycleId || `review:${day}:${round}`,
+    signal,
   });
 }

@@ -21,7 +21,15 @@ class RequestBodyTimeoutError extends Error {
   }
 }
 
-function readJsonBody(req, maxBytes, timeoutMs) {
+function isShutdownError(err) {
+  return err?.reason === 'shutdown';
+}
+
+function shutdownError() {
+  return Object.assign(new Error('shutting down'), { name: 'AbortError', reason: 'shutdown', status: 503 });
+}
+
+function readJsonBody(req, maxBytes, timeoutMs, signal) {
   const contentLength = req.headers['content-length'];
   if (typeof contentLength === 'string' && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
     return Promise.reject(new PayloadTooLargeError());
@@ -57,17 +65,23 @@ function readJsonBody(req, maxBytes, timeoutMs) {
       chunks.push(chunk);
     };
     const onAborted = () => fail(new Error('request aborted'));
+    const onSignal = () => {
+      if (signal?.reason === 'shutdown') fail(shutdownError());
+    };
     const cleanup = () => {
       clearTimeout(timer);
       req.off('data', onData);
       req.off('end', finish);
       req.off('error', fail);
       req.off('aborted', onAborted);
+      signal?.removeEventListener('abort', onSignal);
     };
     req.on('data', onData);
     req.once('end', finish);
     req.once('error', fail);
     req.once('aborted', onAborted);
+    if (signal?.aborted && signal.reason === 'shutdown') onSignal();
+    else signal?.addEventListener('abort', onSignal, { once: true });
   });
 }
 
@@ -191,11 +205,14 @@ export function createServer({
   const generateFn = generate || ((args) => generateSeed({ config, log, ...args }));
   const generateReviewFn = (args) => generateReview({ config, log, ...args });
   const summarizeSoulsFn = summarizeSoulsHook
-    || ((personas) => summarizePersonaSouls({ config, personas, log }));
+    || ((personas, options = {}) => summarizePersonaSouls({ config, personas, log, signal: options.signal }));
   const summarizeHouseRulesFn = summarizeHouseRulesHook
-    || ((rules) => summarizeHouseRules({ config, houseRules: rules, log }));
+    || ((rules, options = {}) => summarizeHouseRules({ config, houseRules: rules, log, signal: options.signal }));
   let activeRefreshes = 0;
   let lastRefreshAdmissionAt = -Infinity;
+  let shuttingDown = false;
+  let shutdownPromise = null;
+  const refreshJobs = new Set();
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', `http://${req.headers.host || `${config.host}:${config.port}`}`);
@@ -226,6 +243,11 @@ export function createServer({
           res.end(JSON.stringify({ error: 'unauthorized' }));
           return;
         }
+        if (shuttingDown) {
+          res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'shutting down' }));
+          return;
+        }
         const refreshMaxConcurrency = config.refreshMaxConcurrency ?? 1;
         const refreshMinIntervalMs = config.refreshMinIntervalMs ?? 60_000;
         const admittedAt = Date.now();
@@ -236,15 +258,32 @@ export function createServer({
         }
         activeRefreshes += 1;
         lastRefreshAdmissionAt = admittedAt;
-        try {
+        const controller = new AbortController();
+        const job = { controller, commitStarted: false, settled: null, promise: null };
+        const refreshStore = {
+          reload: (...args) => store.reload(...args),
+          snapshot: (...args) => store.snapshot(...args),
+          configuredPath: (...args) => store.configuredPath(...args),
+          mutate: (fn) => {
+            job.commitStarted = true;
+            return store.mutate(fn);
+          },
+        };
+        const admission = (async () => {
+          try {
+          req.once('aborted', () => {
+            if (!controller.signal.aborted) controller.abort();
+          });
           let body = {};
           try {
             body = await readJsonBody(
               req,
               config.refreshBodyMaxBytes ?? 16 * 1024,
               config.requestTimeoutMs ?? 30_000,
+              controller.signal,
             );
           } catch (err) {
+            if (isShutdownError(err)) throw err;
             if (err instanceof PayloadTooLargeError) {
               res.writeHead(413, {
                 'Content-Type': 'application/json; charset=utf-8',
@@ -279,11 +318,9 @@ export function createServer({
             res.end(JSON.stringify({ error: err.message }));
             return;
           }
-          await store.reload?.();
-          const controller = new AbortController();
-          req.once('aborted', () => controller.abort());
+          await refreshStore.reload?.();
           const result = await refreshGossip({
-            store,
+            store: refreshStore,
             adapter,
             generate: generateFn,
             generateReview: generateReviewFn,
@@ -302,11 +339,33 @@ export function createServer({
           });
           if (res.destroyed) return;
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify(result));
-          return;
+          await new Promise((resolve) => res.end(JSON.stringify(result), resolve));
+          } catch (err) {
+            if (isShutdownError(err) && !res.headersSent && !res.writableEnded && !res.destroyed) {
+              res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+              await new Promise((resolve) => res.end(JSON.stringify({ error: 'shutting down' }), resolve));
+            }
+            throw err;
+          }
+        })();
+        job.promise = admission.then(
+          (value) => {
+            job.settled = 'drained';
+            return value;
+          },
+          (err) => {
+            job.settled = job.commitStarted || !isShutdownError(err) ? 'drained' : 'aborted';
+            throw err;
+          },
+        );
+        refreshJobs.add(job);
+        try {
+          await job.promise;
         } finally {
           activeRefreshes -= 1;
+          refreshJobs.delete(job);
         }
+        return;
       }
       await store.reload?.();
       if (req.method !== 'GET' || url.pathname !== '/gossip.rss') {
@@ -353,12 +412,19 @@ export function createServer({
       });
       res.writeHead(200, { 'Content-Type': 'application/rss+xml; charset=utf-8' });
       res.end(xml);
-      if (items.length) {
+      if (items.length && !shuttingDown) {
         const follow = watcher || createFollowupWatcher({ store, adapter, config, log });
         follow.afterSkillFetch({ show, since: new Date() });
       }
     } catch (err) {
-      if (res.destroyed) return;
+      if (res.destroyed || res.writableEnded) return;
+      if (isShutdownError(err)) {
+        if (!res.headersSent) {
+          res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'shutting down' }));
+        }
+        return;
+      }
       log.error?.(`[gossip] request failed: ${err.message}`);
       const status = err.status && Number.isInteger(err.status) ? err.status : 500;
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -367,6 +433,57 @@ export function createServer({
   });
   server.headersTimeout = config.headersTimeoutMs ?? 10_000;
   server.requestTimeout = config.requestTimeoutMs ?? 30_000;
+
+  server.shutdown = ({ signal = 'SIGTERM', deadlineMs = config.shutdownDeadlineMs ?? 5000, onBegin } = {}) => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      log.info?.(`[gossip] received ${signal}; shutting down`);
+      onBegin?.();
+      shuttingDown = true;
+      watcher?.beginShutdown?.();
+      const trackedRefreshes = [...refreshJobs].filter((job) => !job.settled);
+      const watchPromises = () => (watcher?.inFlight?.() || []).map((job) => job.promise);
+      const openRefreshes = () => trackedRefreshes.filter((job) => !job.settled).map((job) => job.promise);
+      const busy = () => openRefreshes().length + watchPromises().length;
+      if (busy() > 0 && deadlineMs > 0) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, deadlineMs);
+          (async () => {
+            while (busy() > 0) {
+              const batch = [...openRefreshes(), ...watchPromises()];
+              if (!batch.length) break;
+              await Promise.allSettled(batch);
+            }
+            clearTimeout(timer);
+            resolve();
+          })();
+        });
+      }
+      for (const job of trackedRefreshes) {
+        if (!job.settled && !job.commitStarted) job.controller.abort('shutdown');
+      }
+      watcher?.abandon?.();
+      await Promise.allSettled([...openRefreshes(), ...watchPromises()]);
+      const refreshes = { drained: 0, aborted: 0 };
+      for (const job of trackedRefreshes) {
+        if (job.settled === 'aborted') refreshes.aborted += 1;
+        else refreshes.drained += 1;
+      }
+      const watchers = watcher?.outcomeTally?.() || { drained: 0, aborted: 0 };
+      const outcome = {
+        signal,
+        deadlineMs,
+        forced: refreshes.aborted > 0 || watchers.aborted > 0,
+        refreshes,
+        watchers,
+      };
+      log.info?.(`[gossip] shutdown ${JSON.stringify(outcome)}`);
+      server.closeIdleConnections?.();
+      if (server.listening) server.close();
+      return outcome;
+    })();
+    return shutdownPromise;
+  };
   return server;
 }
 

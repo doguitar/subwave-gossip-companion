@@ -15,12 +15,40 @@ import { reviewGossipBatch } from './review.js';
 
 let generationQueue = Promise.resolve();
 
-function abortError() {
+function isShutdownSignal(signal) {
+  const reason = signal?.reason;
+  return reason === 'shutdown' || reason?.reason === 'shutdown';
+}
+
+function abortError(signal) {
+  if (isShutdownSignal(signal)) {
+    return Object.assign(new Error('shutting down'), { name: 'AbortError', reason: 'shutdown', status: 503 });
+  }
   return Object.assign(new Error('gossip generation aborted'), { name: 'AbortError' });
 }
 
 function throwIfAborted(signal) {
-  if (signal?.aborted) throw abortError();
+  if (signal?.aborted) throw abortError(signal);
+}
+
+async function withSignal(promise, signal) {
+  throwIfAborted(signal);
+  const work = Promise.resolve(promise);
+  if (!signal) return work;
+  let onAbort;
+  const aborted = new Promise((_, reject) => {
+    onAbort = () => reject(abortError(signal));
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([work, aborted]);
+  } catch (err) {
+    if (signal.aborted) throw abortError(signal);
+    throw err;
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function serializeGeneration(operation, signal) {
@@ -85,14 +113,16 @@ async function generateOne({
   log,
   sleep = defaultSleep,
   minLength = 20,
+  signal,
 }) {
   const maxAttempts = 3;
   let lastReason = 'empty-text';
   let attempt = 0;
   while (attempt < maxAttempts) {
+    throwIfAborted(signal);
     attempt += 1;
     try {
-      const payload = await generate({
+      const payload = await withSignal(generate({
         personas: roster,
         houseRules,
         day,
@@ -102,7 +132,8 @@ async function generateOne({
         sessionTidbits,
         attempt,
         lifecycleId,
-      });
+        signal,
+      }), signal);
       const rumor = rumorFromPayload(payload);
       const anchors = payload?.anchors || (Array.isArray(payload?.items) ? payload.items[0]?.anchors : null) || {};
       const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: 240 });
@@ -116,10 +147,11 @@ async function generateOne({
       lastReason = check.reason;
       log.warn?.(`[gossip] rumor rejected attempt=${attempt}/${maxAttempts}: ${check.reason}`);
     } catch (err) {
+      if (err?.name === 'AbortError') throw err;
       if (err?.status === 429) {
         const delay = Math.min(60_000, 1_000 * (2 ** Math.min(attempt - 1, 5)));
         log.warn?.(`[gossip] LLM rate limited; retrying in ${delay}ms`);
-        await sleep(delay);
+        await withSignal(sleep(delay), signal);
         attempt -= 1;
         continue;
       }
@@ -211,7 +243,7 @@ function rolesFromRoster(roles, roster) {
 
 function rosterWithSummaries(roster, summarizeSouls) {
   if (!summarizeSouls) return Promise.resolve(roster);
-  return summarizeSouls(roster).then((summaries) => {
+  return Promise.resolve(summarizeSouls(roster)).then((summaries) => {
     const byId = new Map((summaries || []).map((item) => [item.id, String(item.summary || '').trim()]));
     return roster.map((persona) => {
       const rumorSummary = byId.get(persona.id);
@@ -385,22 +417,78 @@ async function refreshGossipOperation({
   throwIfAborted(signal);
   const lifecycleId = randomUUID();
   const startedAt = Date.now();
+  try {
+    return await runRefreshGossip({
+      store,
+      adapter,
+      generate,
+      cap,
+      strictCap,
+      historyGenerations,
+      now,
+      log,
+      timezone,
+      pickRoles,
+      pickRegister,
+      rumorRegisters,
+      sleep,
+      minLength,
+      reviewRounds,
+      generateReview,
+      summarizeSouls,
+      summarizeHouseRules,
+    }, signal, lifecycleId, startedAt);
+  } catch (err) {
+    if (err?.name === 'AbortError' && err.reason === 'shutdown') {
+      log.info?.(`[gossip] lifecycle ${JSON.stringify({ version: 1, lifecycleId, kind: 'refresh', stage: 'aborted', reason: 'shutdown' })}`);
+    }
+    throw err;
+  }
+}
+
+async function runRefreshGossip({
+  store,
+  adapter,
+  generate,
+  cap = 1,
+  strictCap = false,
+  historyGenerations,
+  now = new Date(),
+  log = console,
+  timezone,
+  pickRoles,
+  pickRegister,
+  rumorRegisters,
+  sleep,
+  minLength = 20,
+  reviewRounds = 0,
+  generateReview,
+  summarizeSouls,
+  summarizeHouseRules,
+}, signal, lifecycleId, startedAt) {
   const chooseRoles = pickRoles || pickGossipRoles;
   const catalog = rumorRegisters ?? DEFAULT_RUMOR_REGISTERS;
   const chooseRegister = pickRegister
     ? () => pickRegister()
     : (roles) => pickRumorRegister({ catalog, targetCount: roles.targets.length });
   const [loadedRoster, loadedHouseRules] = await Promise.all([
-    adapter.getRosterPersonas(),
-    adapter.getHouseRules ? adapter.getHouseRules() : '',
+    withSignal(adapter.getRosterPersonas({ signal }), signal),
+    adapter.getHouseRules ? withSignal(adapter.getHouseRules({ signal }), signal) : '',
   ]);
-  const roster = await rosterWithSummaries(loadedRoster, summarizeSouls);
-  const houseRules = summarizeHouseRules ? await summarizeHouseRules(loadedHouseRules) : loadedHouseRules;
+  throwIfAborted(signal);
+  const roster = await withSignal(rosterWithSummaries(
+    loadedRoster,
+    summarizeSouls ? (personas) => summarizeSouls(personas, { signal }) : null,
+  ), signal);
+  throwIfAborted(signal);
+  const houseRules = summarizeHouseRules
+    ? await withSignal(Promise.resolve(summarizeHouseRules(loadedHouseRules, { signal })), signal)
+    : loadedHouseRules;
   throwIfAborted(signal);
   if (!roster.length) {
     throw Object.assign(new Error('cannot refresh gossip without a persona roster'), { status: 503 });
   }
-  const tz = timezone || (await timezoneFromSchedule(adapter)) || 'UTC';
+  const tz = timezone || (await timezoneFromSchedule(adapter, signal)) || 'UTC';
   const day = stationDay(now, tz);
   const createdAt = now.toISOString();
   const tidbits = [];
@@ -411,7 +499,9 @@ async function refreshGossipOperation({
   const usedTargetSets = new Set();
   const requireComplete = !pickRoles;
   const maxLinks = strictCap || !requireComplete ? cap : Math.max(1, roster.length * 3);
+  throwIfAborted(signal);
   await store.reload();
+  throwIfAborted(signal);
   const baselineIds = currentTidbits(store.snapshot()).map((tidbit) => tidbit.id);
   const baselineRevision = store.snapshot().boardRevision;
   const penalties = recentSelectionPenalty(currentTidbits(store.snapshot()));
@@ -419,6 +509,7 @@ async function refreshGossipOperation({
     ? generatedGossipHistory(store.snapshot()).flat()
     : [];
   for (let i = 0; i < maxLinks && (!requireComplete || refreshCompletenessShortfall(involved, targetCovered, roster)); i += 1) {
+    throwIfAborted(signal);
     let roles = null;
     let register = null;
     for (let pickAttempt = 0; pickAttempt < ROLE_REGISTER_PICK_ATTEMPTS; pickAttempt += 1) {
@@ -449,6 +540,7 @@ async function refreshGossipOperation({
       sleep,
       minLength,
       lifecycleId,
+      signal,
     });
     if (!result.ok) {
       rejected.push({ reason: result.reason });
@@ -482,6 +574,7 @@ async function refreshGossipOperation({
   let finalTidbits = tidbits;
   let review = { accepted: 0, rejected: 0, stale: 0 };
   if (tidbits.length && reviewRounds > 0) {
+    throwIfAborted(signal);
     const result = await reviewGossipBatch({
       tidbits,
       rolesById: batchRoles,
@@ -493,6 +586,7 @@ async function refreshGossipOperation({
       log,
       minLength,
       lifecycleId,
+      signal,
     });
     finalTidbits = result.tidbits;
     review = result;
@@ -518,11 +612,12 @@ async function refreshGossipOperation({
   return { refreshed: finalTidbits.length, rejected: rejected.length, day, tidbits: finalTidbits, review };
 }
 
-async function timezoneFromSchedule(adapter) {
+async function timezoneFromSchedule(adapter, signal) {
   try {
-    const schedule = await adapter.getSchedule();
+    const schedule = await withSignal(adapter.getSchedule({ signal }), signal);
     return schedule.timezone || '';
-  } catch {
+  } catch (err) {
+    if (signal?.aborted || err?.name === 'AbortError') throw err;
     return '';
   }
 }

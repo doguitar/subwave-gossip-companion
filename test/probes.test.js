@@ -196,6 +196,55 @@ test('readiness reports both checks when the state path and the schedule call fa
   assert.deepEqual(log.lines.filter((line) => line.level !== 'warn'), []);
 });
 
+test('liveness stays 200 during shutdown and readiness is unchanged', async () => {
+  const { store } = await tempStore();
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  let started = false;
+  const server = createServer({
+    store,
+    adapter: stubAdapter(),
+    config: {
+      host: '127.0.0.1',
+      port: 0,
+      feedBaseUrl: '',
+      refreshSecret: 'test-secret',
+      refreshMinIntervalMs: 0,
+      refreshMaxConcurrency: 1,
+      refreshCount: 1,
+      gossipHistoryGenerations: 7,
+    },
+    log: captureLog(),
+    generate: () => {
+      started = true;
+      return gate.then(() => ({ rumor: 'word is the booth kettle whistled through the legal ID' }));
+    },
+    pickRoles: () => ({ teller: { id: 'p_a', name: 'Alpha' }, hearers: [], targets: [] }),
+    summarizeSouls: async (roster) => roster,
+    summarizeHouseRules: async (rules) => rules,
+    watcher: { afterSkillFetch() {} },
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const admitted = fetch(`${base}/refresh`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  while (!started) await new Promise((resolve) => setTimeout(resolve, 10));
+  const draining = server.shutdown({ signal: 'SIGTERM', deadlineMs: 1500 });
+  const health = await fetch(`${base}/health`);
+  assert.equal(health.status, 200);
+  assert.equal(await health.text(), 'ok\n');
+  const ready = await fetch(`${base}/ready`);
+  assert.equal(ready.status, 200);
+  assert.deepEqual(await ready.json(), { ready: true });
+  release();
+  await admitted.catch(() => {});
+  await draining;
+});
+
 test('a non-probe route still writes its access line', async () => {
   const { store } = await tempStore();
   const { base, log } = await listen(store, stubAdapter());

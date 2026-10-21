@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import http from 'node:http';
 import net from 'node:net';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -41,6 +42,24 @@ test('refresh count environment value is validated', () => {
   const { config, errors } = loadConfig({ GOSSIP_REFRESH_COUNT: '11' });
   assert.equal(config.refreshCount, 1);
   assert.ok(errors.includes('GOSSIP_REFRESH_COUNT must be an integer 1-10'));
+});
+
+test('shutdown deadline defaults to 5000 and uses the bounded integer error', () => {
+  const unset = loadConfig({ GOSSIP_REFRESH_SECRET: 'operator-secret' });
+  assert.equal(unset.config.shutdownDeadlineMs, 5000);
+  assert.equal(unset.errors.some((error) => error.includes('GOSSIP_SHUTDOWN_DEADLINE_MS')), false);
+
+  const zero = loadConfig({ GOSSIP_REFRESH_SECRET: 'operator-secret', GOSSIP_SHUTDOWN_DEADLINE_MS: '0' });
+  assert.equal(zero.config.shutdownDeadlineMs, 0);
+  assert.equal(zero.errors.some((error) => error.includes('GOSSIP_SHUTDOWN_DEADLINE_MS')), false);
+
+  for (const value of ['1.5', '-1', '3600001', 'nope']) {
+    const { errors } = loadConfig({
+      GOSSIP_REFRESH_SECRET: 'operator-secret',
+      GOSSIP_SHUTDOWN_DEADLINE_MS: value,
+    });
+    assert.ok(errors.includes('GOSSIP_SHUTDOWN_DEADLINE_MS must be an integer 0-3600000'));
+  }
 });
 
 test('refresh authentication and admission configuration are strict', () => {
@@ -195,17 +214,34 @@ function freePort() {
   });
 }
 
-function spawnServe(root, statePath, port) {
+function spawnServe(root, statePath, port, extra = {}) {
   const child = spawn(process.execPath, ['src/cli.js', 'serve', '--base-dir', root], {
     cwd: repo,
-    env: companionEnv(root, statePath, port),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...companionEnv(root, statePath, port), ...extra },
+    stdio: process.platform === 'win32'
+      ? ['ignore', 'pipe', 'pipe', 'ipc']
+      : ['ignore', 'pipe', 'pipe'],
   });
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.output = '';
   child.stdout.on('data', (chunk) => { child.output += chunk; });
   child.stderr.on('data', (chunk) => { child.output += chunk; });
+  if (process.platform === 'win32') {
+    const kill = child.kill.bind(child);
+    child.kill = (signal = 'SIGTERM') => {
+      if (signal === 'SIGKILL' || signal === 'SIGQUIT' || !child.connected) return kill(signal);
+      if (signal === 'SIGTERM' || signal === 'SIGINT') {
+        try {
+          child.send(signal);
+          return true;
+        } catch {
+          return kill(signal);
+        }
+      }
+      return kill(signal);
+    };
+  }
   return child;
 }
 
@@ -309,5 +345,318 @@ test('ingest-spoken exits non-zero and leaves the state file unchanged when the 
     assert.equal(await readFile(statePath, 'utf8'), initial);
   } finally {
     release();
+  }
+});
+
+function shutdownOutcome(output) {
+  const matches = [...output.matchAll(/\[gossip\] shutdown (\{.*\})/g)];
+  assert.equal(matches.length, 1, output);
+  return JSON.parse(matches[0][1]);
+}
+
+function exitWithin(child, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`still running after ${timeoutMs}ms\n${child.output}`));
+    }, timeoutMs);
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      setImmediate(() => resolve(code));
+    });
+  });
+}
+
+function listenFakeStation() {
+  const llmWaiters = [];
+  let llmCalls = 0;
+  let releaseSeed = null;
+  const seedGate = new Promise((resolve) => { releaseSeed = resolve; });
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    if (url.pathname === '/settings') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        values: {
+          djHouseRules: '',
+          personas: [
+            { id: 'p_a', name: 'Alpha', soul: 'Alpha keeps a spare cart.' },
+            { id: 'p_b', name: 'Beta', soul: 'Beta keeps a spare cart.' },
+            { id: 'p_c', name: 'Gamma', soul: 'Gamma keeps a spare cart.' },
+          ],
+        },
+      }));
+      return;
+    }
+    if (url.pathname === '/schedule') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        timezone: 'UTC',
+        personas: [
+          { id: 'p_a', name: 'Alpha' },
+          { id: 'p_b', name: 'Beta' },
+          { id: 'p_c', name: 'Gamma' },
+        ],
+        shows: [{ name: 'Island Time', personaId: 'p_a', guestPersonaIds: [] }],
+      }));
+      return;
+    }
+    if (url.pathname === '/session') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ messages: [] }));
+      return;
+    }
+    if (url.pathname === '/debug') {
+      req.on('close', () => { if (!res.writableEnded) res.end(); });
+      return;
+    }
+    if (url.pathname.endsWith('/chat/completions')) {
+      llmCalls += 1;
+      const call = llmCalls;
+      llmWaiters.forEach((waiter) => waiter(call));
+      const body = JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              summary: 'Keeps a spare cart in the booth.',
+              rumor: 'word is Alpha, Beta, and Gamma left the booth kettle whistling through the legal ID',
+            }),
+          },
+        }],
+      });
+      if (call >= 4) {
+        seedGate.then(() => {
+          if (res.writableEnded) return;
+          res.setHeader('content-type', 'application/json');
+          res.end(body);
+        });
+        req.on('close', () => { if (!res.writableEnded) res.end(); });
+        return;
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(body);
+      return;
+    }
+    res.statusCode = 404;
+    res.end('{}');
+  });
+  return {
+    server,
+    releaseSeed,
+    whenLlmCall(count) {
+      if (llmCalls >= count) return Promise.resolve(llmCalls);
+      return new Promise((resolve) => {
+        const waiter = (call) => {
+          if (call >= count) {
+            llmWaiters.splice(llmWaiters.indexOf(waiter), 1);
+            resolve(call);
+          }
+        };
+        llmWaiters.push(waiter);
+      });
+    },
+  };
+}
+
+async function emptyWorkspace() {
+  const root = await mkdtemp(path.join(tmpdir(), 'gossip-shutdown-'));
+  const statePath = path.join(root, 'data', 'gossip-state.json');
+  await mkdir(path.dirname(statePath), { recursive: true });
+  await writeFile(statePath, `${JSON.stringify({ tidbits: [], generatedGossipHistory: [], gossipComments: [], boardRevision: 0 })}\n`);
+  return { root, statePath };
+}
+
+test('idle SIGTERM and SIGINT exit 0 without waiting out the deadline', async () => {
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    const { root, statePath } = await emptyWorkspace();
+    const port = await freePort();
+    const child = spawnServe(root, statePath, port, { GOSSIP_SHUTDOWN_DEADLINE_MS: '30000' });
+    try {
+      await waitForOutput(child, /listening/);
+      const started = Date.now();
+      child.kill(signal);
+      child.kill(signal);
+      assert.equal(await exitWithin(child, 2500), 0);
+      assert.ok(Date.now() - started < 2500);
+      const outcome = shutdownOutcome(child.output);
+      assert.equal(outcome.signal, signal);
+      assert.equal(outcome.deadlineMs, 30000);
+      assert.equal(outcome.forced, false);
+      assert.deepEqual(outcome.refreshes, { drained: 0, aborted: 0 });
+      assert.deepEqual(outcome.watchers, { drained: 0, aborted: 0 });
+      assert.match(child.output, new RegExp(`\\[gossip\\] received ${signal}; shutting down`));
+    } finally {
+      child.kill('SIGKILL');
+      await stopped(child);
+    }
+  }
+});
+
+test('an idle keep-alive connection does not delay shutdown', async () => {
+  const { root, statePath } = await emptyWorkspace();
+  const port = await freePort();
+  const child = spawnServe(root, statePath, port, { GOSSIP_SHUTDOWN_DEADLINE_MS: '30000' });
+  let socket;
+  try {
+    await waitForOutput(child, /listening/);
+    socket = await new Promise((resolve, reject) => {
+      const connection = net.connect(port, '127.0.0.1');
+      let received = '';
+      connection.setEncoding('utf8');
+      connection.on('data', (chunk) => {
+        received += chunk;
+        if (received.includes('\r\n\r\n')) resolve(connection);
+      });
+      connection.on('error', reject);
+      connection.on('connect', () => {
+        connection.write('GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n');
+      });
+    });
+    const started = Date.now();
+    child.kill('SIGTERM');
+    assert.equal(await exitWithin(child, 2500), 0);
+    assert.ok(Date.now() - started < 2500);
+    const outcome = shutdownOutcome(child.output);
+    assert.equal(outcome.forced, false);
+  } finally {
+    socket?.destroy();
+    child.kill('SIGKILL');
+    await stopped(child);
+  }
+});
+
+test('deadline 0 abandons an in-flight refresh and a second signal does not skip a started commit', async () => {
+  const fake = listenFakeStation();
+  await new Promise((resolve) => fake.server.listen(0, '127.0.0.1', resolve));
+  const api = `http://127.0.0.1:${fake.server.address().port}`;
+  const { root, statePath } = await emptyWorkspace();
+  const port = await freePort();
+  const child = spawnServe(root, statePath, port, {
+    GOSSIP_SHUTDOWN_DEADLINE_MS: '0',
+    SUBWAVE_API_URL: api,
+    OPENAI_BASE_URL: `${api}/v1`,
+    PROVIDER_KEY: 'test-key',
+  });
+  let release;
+  try {
+    await waitForOutput(child, /listening/);
+    const hung = fetch(`http://127.0.0.1:${port}/refresh`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer operator-secret', 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    await fake.whenLlmCall(1);
+    child.kill('SIGTERM');
+    assert.equal(await exitWithin(child, 4000), 0);
+    const hungResponse = await hung;
+    assert.equal(hungResponse.status, 503);
+    assert.deepEqual(await hungResponse.json(), { error: 'shutting down' });
+    const abandoned = shutdownOutcome(child.output);
+    assert.equal(abandoned.deadlineMs, 0);
+    assert.equal(abandoned.forced, true);
+    assert.equal(abandoned.refreshes.aborted, 1);
+    assert.equal(abandoned.refreshes.drained, 0);
+    assert.match(child.output, /"stage":"aborted"/);
+    assert.match(child.output, /"reason":"shutdown"/);
+    assert.equal(JSON.parse(await readFile(statePath, 'utf8')).tidbits.length, 0);
+  } finally {
+    child.kill('SIGKILL');
+    await stopped(child);
+    await new Promise((resolve) => fake.server.close(resolve));
+  }
+
+  const commitFake = listenFakeStation();
+  await new Promise((resolve) => commitFake.server.listen(0, '127.0.0.1', resolve));
+  const commitApi = `http://127.0.0.1:${commitFake.server.address().port}`;
+  const commitWorkspace = await emptyWorkspace();
+  const commitPort = await freePort();
+  const commitChild = spawnServe(commitWorkspace.root, commitWorkspace.statePath, commitPort, {
+    GOSSIP_SHUTDOWN_DEADLINE_MS: '0',
+    SUBWAVE_API_URL: commitApi,
+    OPENAI_BASE_URL: `${commitApi}/v1`,
+    PROVIDER_KEY: 'test-key',
+  });
+  try {
+    await waitForOutput(commitChild, /listening/);
+    const pending = fetch(`http://127.0.0.1:${commitPort}/refresh`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer operator-secret', 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    await commitFake.whenLlmCall(4);
+    release = await acquireMutationLock(commitWorkspace.statePath);
+    commitFake.releaseSeed();
+    await waitForOutput(commitChild, /tidbit accepted/, 8000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(commitChild.exitCode, null);
+    commitChild.kill('SIGTERM');
+    commitChild.kill('SIGINT');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(commitChild.exitCode, null);
+    release();
+    release = null;
+    const response = await pending;
+    assert.equal(response.status, 200);
+    assert.equal(await exitWithin(commitChild, 4000), 0);
+    const disk = JSON.parse(await readFile(commitWorkspace.statePath, 'utf8'));
+    assert.equal(disk.tidbits.length, 1);
+    const outcome = shutdownOutcome(commitChild.output);
+    assert.equal(outcome.forced, false);
+    assert.deepEqual(outcome.refreshes, { drained: 1, aborted: 0 });
+    assert.match(commitChild.output, /"stage":"complete"/);
+    assert.doesNotMatch(commitChild.output, /"stage":"aborted"/);
+  } finally {
+    if (release) release();
+    commitChild.kill('SIGKILL');
+    await stopped(commitChild);
+    await new Promise((resolve) => commitFake.server.close(resolve));
+  }
+});
+
+test('an in-flight follow-up watch stops on shutdown and logs outcome shutdown', async () => {
+  const fake = listenFakeStation();
+  await new Promise((resolve) => fake.server.listen(0, '127.0.0.1', resolve));
+  const api = `http://127.0.0.1:${fake.server.address().port}`;
+  const { root, statePath } = await emptyWorkspace();
+  const aired = 'Alpha said on air, "word is the booth kettle whistled through the legal ID"';
+  await writeFile(statePath, `${JSON.stringify({
+    tidbits: [{
+      id: 't1',
+      threadId: 't1',
+      text: aired,
+      createdAt: new Date().toISOString(),
+      tellerPersonaId: 'p_a',
+      hearerPersonaIds: null,
+      toldAt: [],
+    }],
+    generatedGossipHistory: [],
+    gossipComments: [],
+    boardRevision: 1,
+  })}\n`);
+  const port = await freePort();
+  const child = spawnServe(root, statePath, port, {
+    GOSSIP_SHUTDOWN_DEADLINE_MS: '0',
+    SUBWAVE_API_URL: api,
+    OPENAI_BASE_URL: `${api}/v1`,
+  });
+  try {
+    await waitForOutput(child, /listening/);
+    const rss = await fetch(`http://127.0.0.1:${port}/gossip.rss?show=${encodeURIComponent('Island Time')}`);
+    assert.equal(rss.status, 200);
+    assert.match(await rss.text(), /booth kettle/);
+    await waitForOutput(child, /watching station-gossip/, 8000);
+    const started = Date.now();
+    child.kill('SIGTERM');
+    assert.equal(await exitWithin(child, 4000), 0);
+    assert.ok(Date.now() - started < 4000);
+    const outcome = shutdownOutcome(child.output);
+    assert.equal(outcome.forced, true);
+    assert.equal(outcome.watchers.aborted, 1);
+    assert.equal(outcome.watchers.drained, 0);
+    assert.match(child.output, /\[gossip\] tts watcher \{.*"outcome":"shutdown"/);
+  } finally {
+    child.kill('SIGKILL');
+    await stopped(child);
+    await new Promise((resolve) => fake.server.close(resolve));
   }
 });

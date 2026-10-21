@@ -198,24 +198,62 @@ function attributeVoicedTidbits(state, item, spoken, session, log) {
   log.info?.(`[gossip] attributed on-air line to ${actorPersonaId} across ${targets.size} tidbit(s)`);
 }
 
+function followupAbortError(signal) {
+  const shutdown = signal?.reason === 'shutdown' || signal?.reason?.reason === 'shutdown';
+  return Object.assign(new Error(shutdown ? 'shutting down' : 'This operation was aborted'), {
+    name: 'AbortError',
+    ...(shutdown ? { reason: 'shutdown', status: 503 } : {}),
+  });
+}
+
+async function withFollowupSignal(promise, signal) {
+  const work = Promise.resolve(promise);
+  if (!signal) return work;
+  if (signal.aborted) throw followupAbortError(signal);
+  let onAbort;
+  const aborted = new Promise((_, reject) => {
+    onAbort = () => reject(followupAbortError(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([work, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
 export function createFollowupWatcher({ store, adapter, config, log = console }) {
-  async function run({ show, since }) {
+  let accepting = true;
+  const jobs = new Set();
+  const tally = { drained: 0, aborted: 0 };
+
+  async function run({ show, since, signal, state }) {
     const timeoutMs = config.ttsTimeoutMs || 5 * 60 * 1000;
     const intervalMs = config.ttsPollMs || 3000;
-    const [roster, sessionShowPersonas] = await Promise.all([
-      adapter.getRosterPersonas(),
-      (async () => {
-        try {
-          const sess = await adapter.getSession();
-          const sessionShow = sess?.session?.show || sess?.show || '';
-          const personas = sessionShow ? await adapter.getShowPersonas(sessionShow) : [];
-          return { sess, personas };
-        } catch {
-          return { sess: null, personas: [] };
-        }
-      })(),
-    ]);
-    const requestedShowPersonas = await adapter.getShowPersonas(show);
+    let roster = [];
+    let sessionShowPersonas = { sess: null, personas: [] };
+    let requestedShowPersonas = [];
+    try {
+      [roster, sessionShowPersonas] = await Promise.all([
+        withFollowupSignal(adapter.getRosterPersonas({ signal }), signal),
+        (async () => {
+          try {
+            const sess = await withFollowupSignal(adapter.getSession({ signal }), signal);
+            const sessionShow = sess?.session?.show || sess?.show || '';
+            const personas = sessionShow
+              ? await withFollowupSignal(adapter.getShowPersonas(sessionShow, { signal }), signal)
+              : [];
+            return { sess, personas };
+          } catch (err) {
+            if (signal?.aborted || err?.name === 'AbortError') throw err;
+            return { sess: null, personas: [] };
+          }
+        })(),
+      ]);
+      requestedShowPersonas = await withFollowupSignal(adapter.getShowPersonas(show, { signal }), signal);
+    } catch (err) {
+      if (!(signal?.aborted || err?.name === 'AbortError')) throw err;
+    }
     const showPersonas = sessionShowPersonas.personas.length ? sessionShowPersonas.personas : requestedShowPersonas;
     const outcomes = {};
     let watch = null;
@@ -228,27 +266,71 @@ export function createFollowupWatcher({ store, adapter, config, log = console })
     const onLines = async (spokenLines) => {
       for (const spoken of spokenLines) {
         const fullSpoken = await recoverFullSpokenText(spoken, config.llmCallLogPath, log);
-        const result = await appendGeneratedGossip({
-          store,
-          roster,
-          showPersonas,
-          spoken: fullSpoken,
-          session: sessionShowPersonas.sess,
-          log,
-        });
-        added += result.added || 0;
-        lines += 1;
+        if (signal?.aborted) break;
+        state.commitDepth += 1;
+        try {
+          const result = await appendGeneratedGossip({
+            store,
+            roster,
+            showPersonas,
+            spoken: fullSpoken,
+            session: sessionShowPersonas.sess,
+            log,
+          });
+          added += result.added || 0;
+          lines += 1;
+        } finally {
+          state.commitDepth -= 1;
+        }
       }
     };
     log.info?.(`[gossip] watching station-gossip and station-gossip-cohosted TTS after skill fetch show=${show}`);
-    await waitForStationGossipTts({ adapter, since, timeoutMs, intervalMs, onLines, onOutcome, log });
+    await waitForStationGossipTts({ adapter, since, timeoutMs, intervalMs, onLines, onOutcome, log, signal });
     log.info?.(`[gossip] follow-up watcher outcomes ${JSON.stringify(outcomes)}`);
-    return { added, lines, timedOut: watch?.outcome === 'timeout', watch, outcomes };
+    const disposition = watch?.outcome === 'shutdown' && !state.protectedCommit ? 'aborted' : 'drained';
+    return { added, lines, timedOut: watch?.outcome === 'timeout', watch, outcomes, disposition };
   }
 
   return {
     afterSkillFetch({ show, since }) {
-      return run({ show, since });
+      if (!accepting) {
+        return Promise.resolve({ added: 0, lines: 0, outcomes: {}, started: false });
+      }
+      const controller = new AbortController();
+      const state = { commitDepth: 0, protectedCommit: false };
+      const job = { controller, state, promise: null };
+      const promise = run({ show, since, signal: controller.signal, state }).then(
+        (result) => {
+          if (!accepting) tally[result.disposition] += 1;
+          return result;
+        },
+        (err) => {
+          if (!accepting) {
+            const abandoned = err?.name === 'AbortError' || err?.reason === 'shutdown';
+            tally[abandoned ? 'aborted' : 'drained'] += 1;
+          }
+          throw err;
+        },
+      );
+      job.promise = promise;
+      jobs.add(job);
+      promise.finally(() => jobs.delete(job));
+      return promise;
+    },
+    inFlight() {
+      return [...jobs];
+    },
+    outcomeTally() {
+      return { drained: tally.drained, aborted: tally.aborted };
+    },
+    beginShutdown() {
+      accepting = false;
+    },
+    abandon() {
+      for (const job of jobs) {
+        if (job.state.commitDepth > 0) job.state.protectedCommit = true;
+        if (!job.controller.signal.aborted) job.controller.abort('shutdown');
+      }
     },
   };
 }

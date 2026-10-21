@@ -326,3 +326,68 @@ test('feedBaseUrl self-link omits actor when request has no actor', async () => 
   assert.match(xml, /<link>http:\/\/companion\.test\/gossip\.rss\?show=Test%20Show<\/link>/);
   assert.doesNotMatch(xml, /actor=/);
 });
+
+test('a non-empty RSS response during shutdown is still served and does not start a watch', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({
+      text: 'Broadcast item',
+      tellerPersonaId: PERSONA_A.id,
+      hearerPersonaIds: null,
+      createdAt: new Date().toISOString(),
+    })],
+  });
+  const followCalls = [];
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  let started = false;
+  const server = createServer({
+    store,
+    adapter: stubAdapter(),
+    config: {
+      host: '127.0.0.1',
+      port: 0,
+      feedBaseUrl: '',
+      refreshSecret: 'test-secret',
+      refreshMinIntervalMs: 0,
+      refreshMaxConcurrency: 1,
+      refreshCount: 1,
+      gossipHistoryGenerations: 7,
+      threadMaxTellings: 3,
+      threadMaxAgeMs: 24 * 60 * 60 * 1000,
+    },
+    log: { warn() {}, error() {}, info() {} },
+    generate: ({ signal }) => {
+      started = true;
+      return gate.then(() => {
+      if (signal?.aborted) throw Object.assign(new Error('shutting down'), { name: 'AbortError', reason: 'shutdown' });
+      return { rumor: 'word is the booth kettle whistled through the legal ID' };
+    });
+    },
+    pickRoles: () => ({ teller: PERSONA_A, hearers: [], targets: [] }),
+    summarizeSouls: async (roster) => roster,
+    summarizeHouseRules: async (rules) => rules,
+    watcher: {
+      afterSkillFetch(args) {
+        followCalls.push(args);
+      },
+    },
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const before = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  assert.equal(before.status, 200);
+  assert.match(await before.text(), /Broadcast item/);
+  assert.equal(followCalls.length, 1);
+  const headers = { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' };
+  const admitted = fetch(`${base}/refresh`, { method: 'POST', headers, body: '{}' });
+  while (!started) await new Promise((resolve) => setTimeout(resolve, 10));
+  const draining = server.shutdown({ signal: 'SIGTERM', deadlineMs: 1000 });
+  const during = await fetch(`${base}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  assert.equal(during.status, 200);
+  assert.match(await during.text(), /Broadcast item/);
+  assert.equal(followCalls.length, 1);
+  release();
+  await admitted.catch(() => {});
+  await draining;
+});

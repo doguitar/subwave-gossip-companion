@@ -1425,3 +1425,140 @@ test('refresh keeps an incremental commit made during generation in another proc
   assert.equal(history.includes(marker), true);
   assert.equal(history.some((line) => line.includes('booth kettle')), true);
 });
+
+test('abort between refresh model calls releases the queue and skips the commit', async () => {
+  const { store } = await tempStore();
+  const controller = new AbortController();
+  const logs = [];
+  const log = { info(message) { logs.push(String(message)); }, warn() {} };
+  let firstCalls = 0;
+  const aborted = refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    signal: controller.signal,
+    pickRoles: () => onAir,
+    cap: 2,
+    historyGenerations: 7,
+    generate: async () => {
+      firstCalls += 1;
+      if (firstCalls === 1) controller.abort('shutdown');
+      return { rumor: 'word is the booth kettle whistled through the legal ID' };
+    },
+    log,
+  });
+  const later = refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => ({ rumor: 'word is the second kettle whistled after the abort' }),
+    log,
+  });
+  await assert.rejects(aborted, { name: 'AbortError' });
+  const result = await later;
+  assert.equal(firstCalls, 1);
+  assert.equal(result.refreshed, 1);
+  assert.match(store.snapshot().tidbits[0].text, /second kettle/);
+  const abortedLogs = logs.filter((line) => line.includes('"stage":"aborted"'));
+  assert.equal(abortedLogs.length, 1);
+  assert.match(abortedLogs[0], /"version":1/);
+  assert.match(abortedLogs[0], /"kind":"refresh"/);
+  assert.match(abortedLogs[0], /"reason":"shutdown"/);
+  assert.equal(logs.filter((line) => line.includes('"stage":"complete"') && line.includes('"kind":"refresh"')).length, 1);
+});
+
+test('client disconnect aborts a refresh with AbortError and skips the commit', async () => {
+  const { store } = await tempStore();
+  const controller = new AbortController();
+  const logs = [];
+  const log = { info(message) { logs.push(String(message)); }, warn() {} };
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const aborted = refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    signal: controller.signal,
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => {
+      controller.abort();
+      await gate;
+      return { rumor: 'word is the booth kettle whistled through the legal ID' };
+    },
+    log,
+  });
+  const later = refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => ({ rumor: 'word is the second kettle whistled after the disconnect' }),
+    log,
+  });
+  await assert.rejects(aborted, { name: 'AbortError' });
+  release();
+  const result = await later;
+  assert.equal(result.refreshed, 1);
+  assert.match(store.snapshot().tidbits[0].text, /after the disconnect/);
+  assert.equal(logs.some((line) => line.includes('"stage":"aborted"')), false);
+});
+
+test('abort before a refresh lifecycle does not log or commit', async () => {
+  const { store } = await tempStore();
+  const controller = new AbortController();
+  controller.abort('shutdown');
+  const logs = [];
+  let calls = 0;
+  await assert.rejects(() => refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    signal: controller.signal,
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => {
+      calls += 1;
+      return { rumor: 'word is the booth kettle whistled through the legal ID' };
+    },
+    log: { info(message) { logs.push(String(message)); }, warn() {} },
+  }), { name: 'AbortError' });
+  assert.equal(calls, 0);
+  assert.equal(store.snapshot().tidbits.length, 0);
+  assert.equal(logs.some((line) => line.includes('"stage":"aborted"')), false);
+});
+
+test('a refresh commit already started finishes after the shutdown abort', async () => {
+  const { store, read } = await tempStore();
+  const controller = new AbortController();
+  const logs = [];
+  const original = store.mutate.bind(store);
+  let entered = () => {};
+  const started = new Promise((resolve) => { entered = resolve; });
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  store.mutate = (fn) => {
+    entered();
+    return gate.then(() => original(fn));
+  };
+  const pending = refreshGossip({
+    store,
+    adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+    signal: controller.signal,
+    pickRoles: () => onAir,
+    cap: 1,
+    historyGenerations: 7,
+    generate: async () => ({ rumor: 'word is the booth kettle whistled through the legal ID' }),
+    log: { info(message) { logs.push(String(message)); }, warn() {} },
+  });
+  await started;
+  controller.abort('shutdown');
+  release();
+  const result = await pending;
+  assert.equal(result.refreshed, 1);
+  assert.match((await read()).tidbits[0].text, /booth kettle/);
+  assert.equal(logs.some((line) => line.includes('"stage":"aborted"')), false);
+  assert.equal(logs.some((line) => line.includes('"stage":"complete"') && line.includes('"kind":"refresh"')), true);
+});

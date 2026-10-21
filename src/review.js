@@ -65,6 +65,7 @@ export async function reviewGossipBatch({
   log = console,
   minLength = 20,
   lifecycleId,
+  signal,
 }) {
   if (!reviewRounds || reviewRounds <= 0 || !tidbits.length || !generateReview) {
     return { tidbits, roundsCompleted: 0, accepted: 0, rejected: 0, stale: 0 };
@@ -74,6 +75,13 @@ export async function reviewGossipBatch({
   const outcomes = { accepted: 0, rejected: 0, stale: 0 };
   log.info?.(`[gossip] review starting tidbits=${current.length} rounds=${reviewRounds}`);
   for (let round = 1; round <= reviewRounds; round += 1) {
+    if (signal?.aborted) {
+      const reason = signal.reason === 'shutdown' ? 'shutdown' : undefined;
+      throw Object.assign(
+        new Error(reason === 'shutdown' ? 'shutting down' : 'gossip generation aborted'),
+        { name: 'AbortError', ...(reason ? { reason, status: 503 } : {}) },
+      );
+    }
     try {
       const payload = await generateReview({
         personas: roster,
@@ -89,6 +97,7 @@ export async function reviewGossipBatch({
         round,
         totalRounds: reviewRounds,
         lifecycleId,
+        signal,
       });
       const revisions = reviewRumorsFromPayload(payload, current);
       const merged = applyReviewRevisions(current, revisions, rolesById, { minLength, log, round });
@@ -101,6 +110,16 @@ export async function reviewGossipBatch({
         `[gossip] review round ${round}/${reviewRounds} accepted=${merged.accepted} rejected=${merged.rejected} stale=${merged.stale}`,
       );
     } catch (err) {
+      if (err?.name === 'AbortError' || signal?.aborted) {
+        if (signal?.aborted && err?.name !== 'AbortError') {
+          const shutdown = signal.reason === 'shutdown';
+          throw Object.assign(
+            new Error(shutdown ? 'shutting down' : 'gossip generation aborted'),
+            { name: 'AbortError', ...(shutdown ? { reason: 'shutdown', status: 503 } : {}) },
+          );
+        }
+        throw err;
+      }
       log.warn?.(`[gossip] review round ${round} failed: ${err.message}`);
       break;
     }
