@@ -36,8 +36,8 @@ test('review rejects generic eyewitness and now-aftermath revisions but allows a
   const tidbit = candidate();
   const metadata = new Map([[tidbit.id, { roles, register }]]);
   for (const rumor of [
-    'I walked past Gamma hiding a cart behind the legal ID again',
-    'Gamma hid a cart behind the legal ID, now it is on permanent display',
+    'Word is I walked past Gamma hiding a cart behind the legal ID again',
+    'Gamma hid a cart behind the legal ID. Now it is on permanent display',
   ]) {
     const result = applyReviewRevisions([tidbit], new Map([[tidbit.id, rumor]]), metadata);
     assert.equal(result.rejected, 1);
@@ -46,6 +46,24 @@ test('review rejects generic eyewitness and now-aftermath revisions but allows a
   const result = applyReviewRevisions([tidbit], new Map([[tidbit.id, accepted]]), metadata);
   assert.equal(result.accepted, 1);
   assert.equal(result.tidbits[0].text, `Alpha told Beta, "${accepted}"`);
+});
+
+test('review requires whole canonical target names and rejects self-target metadata', () => {
+  const tidbit = candidate();
+  const metadata = new Map([[tidbit.id, { roles, register }]]);
+  const substring = applyReviewRevisions(
+    [tidbit],
+    new Map([[tidbit.id, 'Gammas hid a cart behind the legal ID again']]),
+    metadata,
+  );
+  assert.equal(substring.rejected, 1);
+
+  const selfTarget = applyReviewRevisions(
+    [tidbit],
+    new Map([[tidbit.id, 'Alpha hid a cart behind the legal ID again']]),
+    new Map([[tidbit.id, { roles: { ...roles, targets: [PERSONA_A] }, register }]]),
+  );
+  assert.equal(selfTarget.rejected, 1);
 });
 
 test('review retains its accepted baseline after a rejected later revision', () => {
