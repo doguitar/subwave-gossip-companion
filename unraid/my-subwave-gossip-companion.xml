@@ -1,16 +1,16 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>subwave-gossip-companion</Name>
-  <Repository>ghcr.io/doguitar/subwave-gossip-companion:latest</Repository>
+  <Repository>ghcr.io/doguitar/subwave-gossip-companion:1.0.0</Repository>
   <Registry>https://ghcr.io/</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <Support>https://github.com/doguitar/subwave-gossip-companion</Support>
   <Project>https://github.com/doguitar/subwave-gossip-companion</Project>
-  <Overview>Persona-aware fictional gossip companion for SUB/WAVE. Serves /gossip.rss?show=&amp;actor= so each speaking character gets show-known rumors, skips the rumor they most recently voiced, and receives a gossipTeller name when that teller is on the show. Spoken events and TTS follow-ups record comments. Persistent state, prompt, and LLM call logs are stored below the workspace path.</Overview>
+  <Overview>Persona-aware fictional gossip companion for SUB/WAVE. Serves /gossip.rss?show=&amp;actor= so each speaking character gets show-known rumors, skips the rumor they most recently voiced, and receives a gossipTeller name when that teller is on the show. Spoken events and TTS follow-ups record comments. Persistent state, prompt, and LLM call logs are stored below the workspace path. The repository field pins image tag 1.0.0 so an upgrade is a deliberate edit. The floating tag latest follows main and is not a rollback point. GOSSIP_FEED_BASE_URL must be a URL the Subwave host can fetch, for example http://192.168.1.20:8080 on the LAN or http://subwave-gossip-companion:8080 on a shared Docker network. Do not leave it as the container loopback. Set Extra Parameters to --stop-timeout=15 because the default 10 second Docker stop grace is shorter than the 5000 ms shutdown deadline plus the state lock wait.</Overview>
   <Category>MediaServer:Audio</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
-  <Icon>https://raw.githubusercontent.com/doguitar/subwave-gossip-companion/main/icon.png</Icon>
+  <Icon>https://github.com/doguitar.png</Icon>
   <Config Name="HTTP port" Target="8080" Default="8080" Mode="tcp" Description="Gossip companion HTTP port." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
   <Config Name="Workspace" Target="/workspace" Default="/mnt/user/appdata/subwave-gossip-companion" Mode="rw" Description="Persistent state, prompt.md, and logs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/subwave-gossip-companion</Config>
   <Config Name="SUBWAVE_API_URL" Target="SUBWAVE_API_URL" Default="" Description="SUB/WAVE API base URL." Type="Variable" Display="always" Required="true" Mask="false"></Config>
@@ -24,6 +24,19 @@
   <Config Name="GOSSIP_REFRESH_SECRET" Target="GOSSIP_REFRESH_SECRET" Default="" Description="Required dedicated operator secret for refresh HTTP requests." Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="GOSSIP_REFRESH_MAX_CONCURRENCY" Target="GOSSIP_REFRESH_MAX_CONCURRENCY" Default="1" Description="Maximum simultaneous refreshes (1-10)." Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
   <Config Name="GOSSIP_REFRESH_MIN_INTERVAL_MS" Target="GOSSIP_REFRESH_MIN_INTERVAL_MS" Default="60000" Description="Minimum milliseconds between admitted refreshes (0-3600000)." Type="Variable" Display="advanced" Required="true" Mask="false">60000</Config>
-  <Config Name="GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="http://127.0.0.1:8080" Description="Public base URL used by the station skill." Type="Variable" Display="always" Required="true" Mask="false">http://127.0.0.1:8080</Config>
+  <Config Name="GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="" Description="URL Subwave uses to fetch this container. Example: http://192.168.1.20:8080 or http://subwave-gossip-companion:8080. Not the container loopback." Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="GOSSIP_REVIEW_ROUNDS" Target="GOSSIP_REVIEW_ROUNDS" Default="0" Description="Post-generation edit passes, integer 0-5." Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+  <Config Name="GOSSIP_TTS_TIMEOUT_MS" Target="GOSSIP_TTS_TIMEOUT_MS" Default="300000" Description="How long serve waits for a spoken clip, in milliseconds." Type="Variable" Display="advanced" Required="false" Mask="false">300000</Config>
+  <Config Name="GOSSIP_TTS_POLL_MS" Target="GOSSIP_TTS_POLL_MS" Default="3000" Description="Spoken-clip poll interval in milliseconds, at least 250." Type="Variable" Display="advanced" Required="false" Mask="false">3000</Config>
+  <Config Name="GOSSIP_LLM_CALL_LOG" Target="GOSSIP_LLM_CALL_LOG" Default="logs/llm-calls.jsonl" Description="LLM call log under the workspace. Empty disables it." Type="Variable" Display="advanced" Required="false" Mask="false">logs/llm-calls.jsonl</Config>
+  <Config Name="GOSSIP_LLM_LOG_CONTENT" Target="GOSSIP_LLM_LOG_CONTENT" Default="metadata" Description="off, metadata, or full. metadata drops prompt and response bodies." Type="Variable" Display="advanced" Required="false" Mask="false">metadata</Config>
+  <Config Name="GOSSIP_OPERATIONAL_LOG" Target="GOSSIP_OPERATIONAL_LOG" Default="logs/gossip.log" Description="Operational log under the workspace." Type="Variable" Display="advanced" Required="false" Mask="false">logs/gossip.log</Config>
+  <Config Name="GOSSIP_OPERATIONAL_LOG_MAX_BYTES" Target="GOSSIP_OPERATIONAL_LOG_MAX_BYTES" Default="524288" Description="Active operational log cap in bytes. Default 524288." Type="Variable" Display="advanced" Required="false" Mask="false">524288</Config>
+  <Config Name="GOSSIP_OPERATIONAL_LOG_RETENTION_MS" Target="GOSSIP_OPERATIONAL_LOG_RETENTION_MS" Default="604800000" Description="How long operational log segments are kept, in milliseconds. Default 604800000." Type="Variable" Display="advanced" Required="false" Mask="false">604800000</Config>
+  <Config Name="GOSSIP_STATE_PATH" Target="GOSSIP_STATE_PATH" Default="data/gossip-state.json" Description="State file under the workspace." Type="Variable" Display="advanced" Required="false" Mask="false">data/gossip-state.json</Config>
+  <Config Name="GOSSIP_TYPES_PATH" Target="GOSSIP_TYPES_PATH" Default="gossip-types.json" Description="Gossip type catalog under the workspace." Type="Variable" Display="advanced" Required="false" Mask="false">gossip-types.json</Config>
+  <Config Name="GOSSIP_REFRESH_COUNT" Target="GOSSIP_REFRESH_COUNT" Default="1" Description="Default refresh maximum, integer 1-10." Type="Variable" Display="advanced" Required="false" Mask="false">1</Config>
+  <Config Name="GOSSIP_REFRESH_BODY_MAX_BYTES" Target="GOSSIP_REFRESH_BODY_MAX_BYTES" Default="16384" Description="Maximum refresh JSON body in bytes, 1-1048576." Type="Variable" Display="advanced" Required="false" Mask="false">16384</Config>
+  <Config Name="GOSSIP_SHUTDOWN_DEADLINE_MS" Target="GOSSIP_SHUTDOWN_DEADLINE_MS" Default="5000" Description="Shutdown drain in milliseconds, integer 0-3600000. Default 5000." Type="Variable" Display="advanced" Required="false" Mask="false">5000</Config>
   <Config Name="GOSSIP_TIMEZONE" Target="GOSSIP_TIMEZONE" Default="America/Los_Angeles" Description="Station timezone." Type="Variable" Display="always" Required="true" Mask="false">America/Los_Angeles</Config>
 </Container>
