@@ -10,7 +10,7 @@ import { refreshGossip, seedGossip } from './seed.js';
 import { ingestSpoken } from './ingest.js';
 import { generateReview, generateSeed, preflightProvider, summarizeHouseRules, summarizePersonaSouls } from './llm.js';
 import { createFollowupWatcher } from './followup.js';
-import { maintainLlmCallLog } from './callLog.js';
+import { maintainLlmCallLog, maintainOperationalLog } from './callLog.js';
 import { createLog } from './log.js';
 
 function baseDirFromArgs(argv) {
@@ -72,11 +72,17 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const baseDir = path.resolve(env.GOSSIP_BASE_DIR || '.');
   const command = argv[0] || 'serve';
   let config = requireConfig(env);
-  const log = createLog(config.operationalLogPath);
   ensurePromptWorkspace(baseDir);
   config = requireConfig(env);
-  warnIfPromptDrift(config.baseDir, log);
+  const log = createLog(config.operationalLogPath, console, {
+    maxBytes: config.operationalLogMaxBytes,
+    retentionMs: config.operationalLogRetentionMs,
+  });
   if (config.llmCallLogPath) await maintainLlmCallLog(config.llmCallLogPath);
+  await maintainOperationalLog(config.operationalLogPath, {
+    retentionMs: config.operationalLogRetentionMs,
+  });
+  warnIfPromptDrift(config.baseDir, log);
   const store = new GossipStore(config.statePath);
   if (command === 'serve') await acquireServerOwnership(config.statePath);
   await store.load();

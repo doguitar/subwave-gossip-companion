@@ -98,6 +98,23 @@ test('operator docs state the shutdown deadline and orchestrator grace rule', as
   }
 });
 
+test('operator docs state operational log size and retention', async () => {
+  const [readme, example] = await Promise.all([
+    readArtifact('README.md'),
+    readArtifact('.env.example'),
+  ]);
+  for (const text of [readme, example]) {
+    assert.match(text, /GOSSIP_OPERATIONAL_LOG_MAX_BYTES/);
+    assert.match(text, /524288/);
+    assert.match(text, /512 KiB/);
+    assert.match(text, /GOSSIP_OPERATIONAL_LOG_RETENTION_MS/);
+    assert.match(text, /604800000/);
+    assert.match(text, /seven days/);
+    assert.match(text, /logs\/gossip\.log/);
+    assert.match(text, /gossip\.<epoch>\.log/);
+  }
+});
+
 test('operator README documents corrupt state refusal and manual restore', async () => {
   const readme = await readArtifact('README.md');
   assert.match(readme, /exits non-zero/);
