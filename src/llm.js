@@ -350,6 +350,16 @@ async function recordLlmCall(config, record) {
   await appendLlmCall(config.llmCallLogPath, shaped);
 }
 
+function retryAfterMs(headers) {
+  const raw = typeof headers?.get === 'function' ? headers.get('retry-after') : headers?.['retry-after'];
+  if (raw == null || raw === '') return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const at = Date.parse(String(raw));
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, at - Date.now());
+}
+
 function outputTruncated(provider, data) {
   if (provider === 'anthropic') return data?.stop_reason === 'max_tokens';
   if (provider === 'google') return data?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
@@ -394,6 +404,7 @@ async function invokeLlm({ config, kind, provider, model, request, fetchImpl, li
     });
     const error = new Error(`LLM ${kind} request failed: HTTP ${res.status}${detail ? ` ${redactProviderDetail(detail)}` : ''}`);
     error.status = res.status;
+    if (res.status === 429) error.retryAfterMs = retryAfterMs(res.headers);
     throw error;
   }
   let data;

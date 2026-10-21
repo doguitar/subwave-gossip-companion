@@ -99,6 +99,29 @@ function tidbitFromRoles(roles, rumor, createdAt, canonicalAnchors = {}) {
   };
 }
 
+export const RATE_LIMIT_ATTEMPTS = 4;
+export const RATE_LIMIT_DEADLINE_MS = 60_000;
+
+export function rateLimitDelayMs({
+  attempt,
+  retryAfterMs,
+  elapsedMs = 0,
+  deadlineMs = RATE_LIMIT_DEADLINE_MS,
+  random = Math.random,
+}) {
+  const remaining = deadlineMs - elapsedMs;
+  if (remaining <= 0) return null;
+  const exponential = Math.min(30_000, 1_000 * (2 ** Math.min(Math.max(attempt, 1) - 1, 4)));
+  const jittered = Math.round(exponential * (0.5 + random() * 0.5));
+  const requested = Number.isFinite(retryAfterMs) && retryAfterMs >= 0 ? retryAfterMs : jittered;
+  if (requested > remaining) return null;
+  return requested;
+}
+
+function rateLimitExhausted() {
+  return Object.assign(new Error('LLM rate limit retries exhausted'), { status: 429, code: 'RATE_LIMIT' });
+}
+
 async function generateOne({
   generate,
   roster,
@@ -114,10 +137,14 @@ async function generateOne({
   sleep = defaultSleep,
   minLength = 20,
   signal,
+  now = Date.now,
+  random = Math.random,
 }) {
   const maxAttempts = 3;
   let lastReason = 'empty-text';
   let attempt = 0;
+  let rateLimits = 0;
+  let rateLimitStartedAt = 0;
   while (attempt < maxAttempts) {
     throwIfAborted(signal);
     attempt += 1;
@@ -149,7 +176,17 @@ async function generateOne({
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
       if (err?.status === 429) {
-        const delay = Math.min(60_000, 1_000 * (2 ** Math.min(attempt - 1, 5)));
+        rateLimits += 1;
+        if (!rateLimitStartedAt) rateLimitStartedAt = now();
+        const delay = rateLimits >= RATE_LIMIT_ATTEMPTS
+          ? null
+          : rateLimitDelayMs({
+            attempt: rateLimits,
+            retryAfterMs: err.retryAfterMs,
+            elapsedMs: now() - rateLimitStartedAt,
+            random,
+          });
+        if (delay == null) throw rateLimitExhausted();
         log.warn?.(`[gossip] LLM rate limited; retrying in ${delay}ms`);
         await withSignal(sleep(delay), signal);
         attempt -= 1;

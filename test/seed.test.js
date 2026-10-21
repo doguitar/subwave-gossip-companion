@@ -8,7 +8,7 @@ import { createLog } from '../src/log.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
 import { rumorTargetSetKey } from '../src/roles.js';
 import { seedUserPrompt } from '../src/llm.js';
-import { refreshGossip, seedGossip } from '../src/seed.js';
+import { RATE_LIMIT_ATTEMPTS, rateLimitDelayMs, refreshGossip, seedGossip } from '../src/seed.js';
 import { appendGeneratedGossipHistory, recordGossipComment, recordTidbitTelling } from '../src/store.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C, runGossipAction, stubAdapter, tempStore, tidbit } from './helpers.js';
 
@@ -274,9 +274,18 @@ test('seed passes a register on every generate call for each new rumor', async (
   assert.notEqual(seenRegisters[0], seenRegisters[1]);
 });
 
-test('seed retries rate limits indefinitely and preserves earlier tidbits', async () => {
+test('rate limit delay uses jittered backoff or Retry-After inside the deadline', () => {
+  assert.equal(rateLimitDelayMs({ attempt: 1, elapsedMs: 0, random: () => 0 }), 500);
+  assert.equal(rateLimitDelayMs({ attempt: 1, elapsedMs: 0, random: () => 1 }), 1000);
+  assert.equal(rateLimitDelayMs({ attempt: 2, retryAfterMs: 2500, elapsedMs: 0, random: () => 0 }), 2500);
+  assert.equal(rateLimitDelayMs({ attempt: 1, retryAfterMs: 120_000, elapsedMs: 0 }), null);
+  assert.equal(rateLimitDelayMs({ attempt: 1, elapsedMs: 60_000, random: () => 0 }), null);
+});
+
+test('seed recovers from a transient rate limit and keeps earlier tidbits', async () => {
   const { store } = await tempStore();
   let calls = 0;
+  const delays = [];
   const result = await seedGossip({
     store,
     adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B] }),
@@ -284,12 +293,13 @@ test('seed retries rate limits indefinitely and preserves earlier tidbits', asyn
     cap: 2,
     historyGenerations: 7,
     timezone: 'UTC',
-    sleep: async () => {},
+    sleep: async (ms) => { delays.push(ms); },
     generate: async () => {
       calls += 1;
       if (calls === 2) {
         const error = new Error('rate limited');
         error.status = 429;
+        error.retryAfterMs = 25;
         throw error;
       }
       return { rumor: `unconfirmed station item ${calls}` };
@@ -299,6 +309,36 @@ test('seed retries rate limits indefinitely and preserves earlier tidbits', asyn
   assert.equal(result.seeded, 2);
   assert.equal(store.snapshot().tidbits.length, 2);
   assert.equal(calls, 3);
+  assert.deepEqual(delays, [25]);
+});
+
+test('seed stops after bounded rate limits and preserves the existing board', async () => {
+  const prior = tidbit({ id: 'kept', text: 'Alpha told Beta, "kept the old rumor intact"' });
+  const { store, read } = await tempStore({ tidbits: [prior] });
+  const delays = [];
+  await assert.rejects(
+    () => seedGossip({
+      store,
+      adapter: stubAdapter({ personas: [PERSONA_A, PERSONA_B] }),
+      pickRoles: () => onAir,
+      cap: 1,
+      historyGenerations: 7,
+      timezone: 'UTC',
+      sleep: async (ms) => { delays.push(ms); },
+      generate: async () => {
+        const error = new Error('rate limited');
+        error.status = 429;
+        error.retryAfterMs = 0;
+        throw error;
+      },
+      log: { info() {}, warn() {} },
+    }),
+    (err) => err.code === 'RATE_LIMIT' && err.status === 429,
+  );
+  assert.equal(delays.length, RATE_LIMIT_ATTEMPTS - 1);
+  const state = await read();
+  assert.equal(state.tidbits.length, 1);
+  assert.equal(state.tidbits[0].id, 'kept');
 });
 
 test('default refresh chains until every persona participates', async () => {
