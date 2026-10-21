@@ -69,7 +69,7 @@ node src/cli.js summarize-souls --base-dir .
 
 `generate` seeds the board the same way as `seed`, prints each new rumor, and accepts `--reasoning` (one run's thinking level) and `--review-steps` (an integer 0–5 for that run). `summarize-souls` prints the house-rules summary and each persona summary without writing gossip. Soul and house-rules summary calls are written to the LLM call log with the same redaction as seed and review.
 
-The HTTP service listens on `GOSSIP_HOST:GOSSIP_PORT` and exposes `/gossip.rss` and `POST /gossip/refresh`.
+The HTTP service listens on `GOSSIP_HOST:GOSSIP_PORT` and exposes `/gossip.rss` and `POST /gossip/refresh`. `GET /health` is the liveness probe and `GET /ready` is the readiness probe. The image healthcheck calls liveness only.
 
 ### Character-aware RSS
 
