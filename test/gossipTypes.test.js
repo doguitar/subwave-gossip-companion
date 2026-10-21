@@ -43,21 +43,23 @@ test('parseGossipTypesJson rejects empty catalog and duplicate slugs', () => {
   assert.match(parseGossipTypesJson(dup).errors.join('; '), /duplicate gossip type slug: a/);
 });
 
-test('ensureGossipTypesFile seeds four legacy registers', async () => {
+test('ensureGossipTypesFile seeds the packaged catalog', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'gossip-types-'));
   const typesPath = path.join(dir, 'gossip-types.json');
+  const packaged = JSON.parse(await readFile(new URL('../gossip-types.json', import.meta.url), 'utf8'));
+  assert.deepEqual(defaultGossipTypesFileEntries(), packaged);
+  assert.deepEqual(
+    DEFAULT_RUMOR_REGISTERS.map((register) => register.id),
+    packaged.map((entry) => entry.slug),
+  );
   assert.equal(ensureGossipTypesFile(typesPath), true);
   const onDisk = JSON.parse(await readFile(typesPath, 'utf8'));
-  assert.equal(onDisk.length, 4);
-  const expected = defaultGossipTypesFileEntries();
-  assert.deepEqual(
-    onDisk.map((e) => e.slug),
-    expected.map((e) => e.slug),
-  );
-  assert.deepEqual(
-    onDisk.map((e) => e.guidance),
-    DEFAULT_RUMOR_REGISTERS.map((r) => r.guidance),
-  );
+  assert.deepEqual(onDisk, packaged);
+  await writeFile(typesPath, '   \n');
+  assert.equal(ensureGossipTypesFile(typesPath), true);
+  assert.deepEqual(JSON.parse(await readFile(typesPath, 'utf8')), packaged);
+  await writeFile(typesPath, `${JSON.stringify([{ slug: 'kept', guidance: 'stay' }])}\n`);
+  assert.equal(ensureGossipTypesFile(typesPath), false);
 });
 
 test('loadConfig resolves default gossip types path and loads catalog', async () => {
@@ -65,7 +67,7 @@ test('loadConfig resolves default gossip types path and loads catalog', async ()
   const { config, errors } = loadConfig({ ...apiEnv, GOSSIP_BASE_DIR: dir });
   assert.deepEqual(errors, []);
   assert.equal(config.gossipTypesPath, path.join(dir, 'gossip-types.json'));
-  assert.equal(config.rumorRegisters.length, 4);
+  assert.equal(config.rumorRegisters.length, DEFAULT_RUMOR_REGISTERS.length);
   assert.equal(config.rumorRegisters[0].id, DEFAULT_RUMOR_REGISTERS[0].id);
 });
 
