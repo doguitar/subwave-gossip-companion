@@ -1,15 +1,19 @@
 import {
   appendFile,
   mkdir,
+  readFile,
   readdir,
   rename,
   stat,
   unlink,
+  writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 
 export const LLM_CALL_LOG_MAX_BYTES = 512 * 1024;
 export const LLM_CALL_LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+export const LLM_LOG_CONTENT_MODES = ['off', 'metadata', 'full'];
+const CONTENT_KEYS = ['prompt', 'system', 'user', 'messages', 'response', 'content', 'request', 'raw', 'soul', 'houseRules'];
 
 function logStem(filePath) {
   const base = path.basename(filePath);
@@ -74,17 +78,62 @@ async function rotateIfNeeded(filePath, nextLineBytes) {
   await rename(filePath, rolledPath);
 }
 
-async function purgeExpiredSegments(filePath, nowMs = Date.now()) {
-  const cutoff = nowMs - LLM_CALL_LOG_RETENTION_MS;
-  for (const segmentPath of await listLlmCallLogSegments(filePath)) {
-    if (segmentPath === filePath) continue;
-    try {
-      const { mtimeMs } = await stat(segmentPath);
-      if (mtimeMs < cutoff) await unlink(segmentPath);
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
-    }
+function recordTimeMs(record, fallbackMs) {
+  const parsed = Date.parse(record?.at);
+  return Number.isFinite(parsed) ? parsed : fallbackMs;
+}
+
+async function rewriteSegment(segmentPath, nowMs) {
+  let text;
+  let mtimeMs = nowMs;
+  try {
+    const fileStat = await stat(segmentPath);
+    mtimeMs = fileStat.mtimeMs;
+    text = await readFile(segmentPath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return;
+    throw err;
   }
+  const cutoff = nowMs - LLM_CALL_LOG_RETENTION_MS;
+  const kept = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      if (mtimeMs >= cutoff) kept.push(line);
+      continue;
+    }
+    if (recordTimeMs(record, mtimeMs) >= cutoff) kept.push(JSON.stringify(record));
+  }
+  if (!kept.length) {
+    await unlink(segmentPath).catch((err) => {
+      if (err.code !== 'ENOENT') throw err;
+    });
+    return;
+  }
+  const next = `${kept.join('\n')}\n`;
+  if (next === text) return;
+  const tempPath = `${segmentPath}.tmp`;
+  await writeFile(tempPath, next, 'utf8');
+  await rename(tempPath, segmentPath);
+}
+
+export async function maintainLlmCallLog(filePath, nowMs = Date.now()) {
+  if (!filePath) return;
+  for (const segmentPath of await listLlmCallLogSegments(filePath)) {
+    await rewriteSegment(segmentPath, nowMs);
+  }
+}
+
+export function shapeLlmCallRecord(record, mode = 'metadata') {
+  const normalized = LLM_LOG_CONTENT_MODES.includes(mode) ? mode : 'metadata';
+  if (normalized === 'off') return null;
+  if (normalized === 'full') return record;
+  const shaped = { ...record };
+  for (const key of CONTENT_KEYS) delete shaped[key];
+  return shaped;
 }
 
 export async function appendLlmCall(filePath = 'logs/llm-calls.jsonl', record) {
@@ -93,7 +142,7 @@ export async function appendLlmCall(filePath = 'logs/llm-calls.jsonl', record) {
   const nextLineBytes = Buffer.byteLength(line, 'utf8');
   await rotateIfNeeded(filePath, nextLineBytes);
   await appendFile(filePath, line, 'utf8');
-  await purgeExpiredSegments(filePath);
+  await maintainLlmCallLog(filePath);
 }
 
 export async function appendOperationalLog(filePath, line) {

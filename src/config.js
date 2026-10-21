@@ -153,7 +153,13 @@ export function loadConfig(env = process.env) {
   ).trim().replace(/\/+$/, '');
   const llmUrl = openaiBaseUrl;
   const llmFixturePath = env.GOSSIP_LLM_FIXTURE ? resolveBase(env.GOSSIP_LLM_FIXTURE, '') : '';
-  const llmCallLogPath = resolveBase(env.GOSSIP_LLM_CALL_LOG, path.join('logs', 'llm-calls.jsonl'));
+  const llmCallLogPath = env.GOSSIP_LLM_CALL_LOG === ''
+    ? ''
+    : resolveBase(env.GOSSIP_LLM_CALL_LOG, path.join('logs', 'llm-calls.jsonl'));
+  const llmLogContent = String(env.GOSSIP_LLM_LOG_CONTENT || 'metadata').trim().toLowerCase();
+  if (!['off', 'metadata', 'full'].includes(llmLogContent)) {
+    errors.push('GOSSIP_LLM_LOG_CONTENT must be off, metadata, or full');
+  }
   const operationalLogPath = resolveBase(env.GOSSIP_OPERATIONAL_LOG, path.join('logs', 'gossip.log'));
   const promptPath = path.join(baseDir, 'prompt.md');
   const gossipTypesPath = resolveBase(env.GOSSIP_TYPES_PATH, 'gossip-types.json');
@@ -221,6 +227,7 @@ export function loadConfig(env = process.env) {
     llmUrl,
     llmFixturePath,
     llmCallLogPath,
+    llmLogContent,
     operationalLogPath,
     refreshCount,
     ttsTimeoutMs: Number.isFinite(ttsTimeoutMs) && ttsTimeoutMs > 0 ? ttsTimeoutMs : 5 * 60 * 1000,
