@@ -1,5 +1,8 @@
-# Station gossip companion — use the host scheduler. Times assume the station timezone.
-# Daily seed before programming begins
-0 4 * * * cd /opt/station-gossip-companion && node src/cli.js seed
+# Station gossip companion. The image runs only `serve`; schedule these on the host.
+# Times assume the station timezone. Code lives in /app; persistent state is /workspace.
+# Daily refresh replaces the active slate. Use seed only when you mean to append.
+0 4 * * * cd /app && node src/cli.js refresh --base-dir /workspace
+# Optional append-only seed (does not replace existing tidbits):
+# 0 4 * * * cd /app && node src/cli.js seed --base-dir /workspace
 # Recurring spoken-event ingestion
-*/5 * * * * cd /opt/station-gossip-companion && node src/cli.js ingest-spoken
+*/5 * * * * cd /app && node src/cli.js ingest-spoken --base-dir /workspace
