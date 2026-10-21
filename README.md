@@ -71,6 +71,8 @@ node src/cli.js summarize-souls --base-dir .
 
 The HTTP service listens on `GOSSIP_HOST:GOSSIP_PORT` and exposes `/gossip.rss` and `POST /gossip/refresh`. `GET /health` is the liveness probe and `GET /ready` is the readiness probe. The image healthcheck calls liveness only.
 
+If the gossip state file is not valid JSON, startup exits non-zero and names that file. The default path is `data/gossip-state.json` under the base directory; `GOSSIP_STATE_PATH` selects a different file under that directory. The process does not rewrite the file. Stop the process, replace the file with a backup or repair the JSON in place with an external editor, then start again. Do not delete the file to get past the error if those bytes are still needed. A missing file is first-run behavior and comes up as an empty board.
+
 ### Character-aware RSS
 
 `GET /gossip.rss` requires `show`. The feed contains rumors known to that show's personas: public tidbits, tidbits told by someone on the show, and tidbits heard by someone on the show. Pass the speaking persona id as `actor` so the station skill can request that character's feed:

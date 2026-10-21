@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { refreshCountOption, generateOptions, applyCliOptions } from '../src/cli.js';
 import { applyDotEnv, loadConfig } from '../src/config.js';
 import { fileURLToPath } from 'node:url';
+
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const config = { reviewRounds: 0 };
 
@@ -89,7 +91,6 @@ test('dotenv path follows no flag, GOSSIP_BASE_DIR, then --base-dir', async () =
 test('CLI process loads --base-dir .env before config failure', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'dotenv-cli-'));
   await writeFile(path.join(root, '.env'), 'GOSSIP_REFRESH_SECRET=from-dotenv\n');
-  const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const result = spawnSync(process.execPath, ['src/cli.js', 'refresh', '--base-dir', root], {
     cwd: repo,
     encoding: 'utf8',
@@ -99,4 +100,79 @@ test('CLI process loads --base-dir .env before config failure', async () => {
   assert.equal(result.status === 0, false);
   assert.doesNotMatch(output, /Cannot read env file|The "path" argument/);
   assert.match(output, /Invalid configuration|SUBWAVE_API_URL|PROVIDER/);
+});
+
+async function spawnWithCorruptState(command) {
+  const root = await mkdtemp(path.join(tmpdir(), 'gossip-cli-'));
+  const statePath = path.join(root, 'data', 'gossip-state.json');
+  await mkdir(path.dirname(statePath), { recursive: true });
+  const corrupt = '{"tidbits":';
+  await writeFile(statePath, corrupt);
+  const result = spawnSync(process.execPath, ['src/cli.js', command, '--base-dir', root], {
+    cwd: repo,
+    encoding: 'utf8',
+    timeout: 8000,
+    env: {
+      ...process.env,
+      GOSSIP_BASE_DIR: root,
+      GOSSIP_STATE_PATH: statePath,
+      GOSSIP_TYPES_PATH: path.join(repo, 'gossip-types.json'),
+      GOSSIP_OPERATIONAL_LOG: path.join(root, 'logs', 'gossip.log'),
+      GOSSIP_LLM_CALL_LOG: '',
+      GOSSIP_LLM_LOG_CONTENT: 'off',
+      GOSSIP_LLM_FIXTURE: '',
+      GOSSIP_REFRESH_SECRET: 'operator-secret',
+      GOSSIP_REFRESH_COUNT: '1',
+      GOSSIP_REFRESH_MAX_CONCURRENCY: '1',
+      GOSSIP_REFRESH_MIN_INTERVAL_MS: '0',
+      GOSSIP_REFRESH_BODY_MAX_BYTES: '16384',
+      GOSSIP_HEADERS_TIMEOUT_MS: '10000',
+      GOSSIP_REQUEST_TIMEOUT_MS: '30000',
+      GOSSIP_SEED_CAP: '5',
+      GOSSIP_HISTORY_GENERATIONS: '7',
+      GOSSIP_REVIEW_ROUNDS: '0',
+      GOSSIP_THREAD_MAX_TELLINGS: '3',
+      GOSSIP_THREAD_MAX_AGE_MS: '86400000',
+      GOSSIP_PORT: '18787',
+      SUBWAVE_API_URL: 'https://station.example/api',
+      SUBWAVE_API_TOKEN: 'token',
+      SUBWAVE_API_USER: '',
+      SUBWAVE_API_PASSWORD: '',
+      PROVIDER: 'openai',
+      PROVIDER_KEY: '',
+      PROVIDER_MODEL: 'gpt-4o-mini',
+      PROVIDER_THINKING: '',
+      GOSSIP_LLM_API_KEY: '',
+      GOSSIP_LLM_THINKING: '',
+      GOSSIP_LLM_URL: '',
+      OPENAI_API_KEY: '',
+      ANTHROPIC_API_KEY: '',
+      GOOGLE_API_KEY: '',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+  });
+  return { result, statePath, corrupt, after: await readFile(statePath, 'utf8') };
+}
+
+function assertCorruptStateFailure({ result, statePath, corrupt, after }) {
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr.trim(), `${statePath} is not valid JSON`);
+  assert.equal(after, corrupt);
+}
+
+test('serve exits before listening when the state file is corrupt', async () => {
+  const spawned = await spawnWithCorruptState('serve');
+  assertCorruptStateFailure(spawned);
+  assert.doesNotMatch(`${spawned.result.stdout}\n${spawned.result.stderr}`, /listening/);
+});
+
+test('provider commands exit with the state-file error when preflight would also fail', async () => {
+  for (const command of ['generate', 'seed', 'refresh', 'summarize-souls']) {
+    const spawned = await spawnWithCorruptState(command);
+    assertCorruptStateFailure(spawned);
+  }
+});
+
+test('ingest-spoken exits without rewriting a corrupt state file', async () => {
+  assertCorruptStateFailure(await spawnWithCorruptState('ingest-spoken'));
 });

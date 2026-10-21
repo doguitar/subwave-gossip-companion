@@ -72,15 +72,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const command = argv[0] || 'serve';
   let config = requireConfig(env);
   const log = createLog(config.operationalLogPath);
-  if (['generate', 'seed', 'gossip:seed', 'refresh', 'gossip:refresh', 'summarize-souls'].includes(command)) {
-    await preflightProvider({ config, log });
-  }
   ensurePromptWorkspace(baseDir);
   config = requireConfig(env);
   warnIfPromptDrift(config.baseDir, log);
   if (config.llmCallLogPath) await maintainLlmCallLog(config.llmCallLogPath);
   const store = new GossipStore(config.statePath);
   await store.load();
+  if (['generate', 'seed', 'gossip:seed', 'refresh', 'gossip:refresh', 'summarize-souls'].includes(command)) {
+    await preflightProvider({ config, log });
+  }
   log.info(`[gossip] storage ready path=${config.statePath} tidbits=${store.snapshot().tidbits.length}`);
   const adapter = new SubwaveAdapter({
     apiUrl: config.apiUrl,

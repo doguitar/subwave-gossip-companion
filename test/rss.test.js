@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { createServer } from '../src/server.js';
 import { PERSONA_A, PERSONA_B, stubAdapter, tempStore, tidbit } from './helpers.js';
@@ -76,6 +76,37 @@ test('schedule unavailable returns JSON error instead of empty RSS', async () =>
   assert.doesNotMatch(body, /<rss/i);
   const json = JSON.parse(body);
   assert.match(json.error, /schedule down/i);
+});
+
+test('corrupt state reload returns JSON error instead of an empty RSS feed', async () => {
+  const { store, filePath } = await tempStore({
+    tidbits: [tidbit({ text: 'Should not leak', hearerPersonaIds: null })],
+  });
+  const corrupt = '{"tidbits":';
+  await writeFile(filePath, corrupt);
+  const followCalls = [];
+  const config = { host: '127.0.0.1', port: 0, feedBaseUrl: '' };
+  const server = createServer({
+    store,
+    adapter: stubAdapter(),
+    config,
+    log: { warn() {}, error() {}, info() {} },
+    watcher: {
+      afterSkillFetch(args) {
+        followCalls.push(args);
+      },
+    },
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const { port } = server.address();
+  const res = await fetch(`http://127.0.0.1:${port}/gossip.rss?show=${encodeURIComponent('Test Show')}`);
+  assert.ok(res.status >= 400);
+  const body = await res.text();
+  assert.doesNotMatch(body, /<rss/i);
+  assert.equal(JSON.parse(body).error, `${filePath} is not valid JSON`);
+  assert.equal(await readFile(filePath, 'utf8'), corrupt);
+  assert.equal(followCalls.length, 0);
 });
 
 test('missing show is 400; unknown and empty-persona shows are empty 200', async () => {

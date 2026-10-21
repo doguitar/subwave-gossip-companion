@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import net from 'node:net';
 import { createServer } from '../src/server.js';
@@ -339,4 +340,35 @@ test('RSS leaves a saturated thread out of the first item without changing its w
   assert.equal(res.status, 200);
   const items = parseRssItems(await res.text());
   assert.deepEqual(items, [{ id: 'fresh', text: 'Fresh rumor' }]);
+});
+
+test('refresh routes return the store JSON error when the state file is corrupt', async () => {
+  for (const route of ['/refresh', '/gossip/refresh']) {
+    const { store, filePath } = await tempStore({
+      tidbits: [tidbit({ text: 'kept on disk' })],
+    });
+    const corrupt = '{"tidbits":';
+    await writeFile(filePath, corrupt);
+    let generations = 0;
+    const base = await start(
+      store,
+      stubAdapter({ personas: [PERSONA_A, PERSONA_B, PERSONA_C] }),
+      async () => {
+        generations += 1;
+        return { rumor: 'unconfirmed the booth kettle whistled through the legal ID' };
+      },
+    );
+    const res = await fetch(`${base}${route}`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-secret', 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    assert.ok(res.status >= 400);
+    const body = await res.json();
+    assert.equal(body.error, `${filePath} is not valid JSON`);
+    assert.equal(body.tidbits, undefined);
+    assert.equal(body.refreshed, undefined);
+    assert.equal(generations, 0);
+    assert.equal(await readFile(filePath, 'utf8'), corrupt);
+  }
 });
