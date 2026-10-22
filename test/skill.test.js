@@ -116,13 +116,28 @@ test('skill instructions escalate the rumor in character and never narrate drift
   assert.match(skill, /more salacious/);
   assert.match(skill, /whose version you are hearing/);
   assert.match(skill, /your own scrap/);
-  assert.match(skill, /talking about me/);
   assert.match(skill, /stay silent/);
   assert.match(skill, /only one you have/);
   assert.match(skill, /item\.rumor/);
   assert.match(skill, /never use your active persona's display name as a third-person subject/);
   assert.match(cohostedSkill, /item\.rumor/);
+  assert.match(cohostedSkill, /per active persona/);
+  assert.match(cohostedSkill, /One cohost being a subject does not make the reaction true for another/);
   assert.match(cohostedSkill, /never use an active persona's display name as a third-person subject/);
+  for (const text of [skill, cohostedSkill]) {
+    const aboutMe = text.split(/(?<=\.)\s+/).filter((sentence) => sentence.includes('talking about me'));
+    assert.ok(aboutMe.length >= 1);
+    for (const sentence of aboutMe) {
+      assert.match(sentence, /only when the speaking persona is a subject of `item\.rumor`/);
+      assert.doesNotMatch(sentence, /such as/);
+    }
+    assert.doesNotMatch(text, /I don't know why X is talking about me/);
+    assert.match(text, /Name the teller only inside a reaction/);
+    assert.match(text, /Being on the mic, being `item\.teller`, or being a hearer does not/);
+    assert.match(text, /A previous teller's "me" is that teller/);
+    assert.match(text, /A station-life rumor names no persona/);
+    assert.match(text, /must not claim the speaker did, suffered, owns, or is the thing/);
+  }
 
   const source = 'Alpha heard the cart skip twice behind the booth.';
   const spoken = 'Word on the overnight shift is the cart machine threw itself through the booth wall and took the transmitter with it.';
