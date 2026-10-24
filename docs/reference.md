@@ -4,7 +4,7 @@ This page lists what the process accepts. The README explains how to run it.
 
 ## Commands
 
-Every command accepts `--base-dir <dir>` or `--base <dir>`. That directory wins over `GOSSIP_BASE_DIR` and is where `.env` is loaded. The default command is `serve`.
+Every command accepts `--base-dir <dir>` or `--base <dir>`. That directory wins over `GOSSIP_BASE_DIR` and is where `.env` and `config.yaml` are loaded. `config.yaml.example` is the commented settings example. The default command is `serve`.
 
 | Command | Arguments | Depends on |
 |---|---|---|
@@ -35,7 +35,7 @@ The process binds `GOSSIP_HOST` (default `0.0.0.0`) and `GOSSIP_PORT` (default `
 
 ## Environment
 
-`.env.example` and `loadConfig` are the source of truth. Relative paths resolve under `GOSSIP_BASE_DIR` (default `.`).
+`.env.example`, `config.yaml`, `config.yaml.example`, and `loadConfig` are the source of truth. Relative paths resolve under `GOSSIP_BASE_DIR` (default `.`).
 
 | Key | Default | Range / values |
 |---|---|---|

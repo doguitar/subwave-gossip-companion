@@ -12,5 +12,8 @@
     "gossip:refresh": "node src/cli.js refresh",
     "gossip:ingest-spoken": "node src/cli.js ingest-spoken",
     "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
   }
 }

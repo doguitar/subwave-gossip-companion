@@ -11,7 +11,7 @@ Read the section that matches the change. Do not copy `docs/reference.md` into t
 | Stored tidbits, comments, tellings, locks | `src/store.js` | `test/store.test.js` |
 | RSS selection and item shape | `src/rss.js`, `src/server.js` | `test/rss.test.js` |
 | Station skill text | `skills/station-gossip/SKILL.md`, `skills/station-gossip-cohosted/SKILL.md`, `src/skill.js` | `test/skill.test.js` |
-| Config and CLI flags | `src/config.js`, `src/cli.js`, `.env.example` | `test/cli.test.js` |
+| Config and CLI flags | `src/config.js`, `src/cli.js`, `.env.example`, `config.yaml.example` | `test/cli.test.js` |
 | HTTP routes and probes | `src/server.js` | `test/probes.test.js`, `test/refresh.test.js` |
 | Deployment and operator docs | `Dockerfile`, `docker-entrypoint.sh`, `crontab`, `README.md`, `docs/reference.md` | `test/deployment-docs.test.js` |
 | Spoken ingest and on-air follow-up | `src/ingest.js`, `src/spoken.js`, `src/followup.js` | `test/ingest.test.js`, `test/followup.test.js` |
@@ -32,4 +32,4 @@ A behavior change updates the test that locks the contract and, when an operator
 
 Run `npm test`. Then run the test file named for the path you changed, for example `node --test test/rss.test.js`.
 
-Do not commit `.env`, `logs/`, `data/*.json`, or a station-private `prompt.md`. The packaged `prompt.md` stays the product prompt.
+Do not commit `.env`, `config.yaml`, `logs/`, `data/*.json`, or a station-private `prompt.md`. The packaged `prompt.md` stays the product prompt.
