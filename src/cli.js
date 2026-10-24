@@ -107,15 +107,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     }
     const watcher = createFollowupWatcher({ store, adapter, config, log });
     const server = createServer({ store, adapter, config, log, watcher });
-    await listen(server, config, log);
-    const maintenance = config.llmCallLogPath
-      ? setInterval(() => {
-        maintainLlmCallLog(config.llmCallLogPath).catch((err) => {
-          log.warn?.(`[gossip] LLM call log retention failed: ${err.message}`);
-        });
-      }, 60 * 60 * 1000)
-      : null;
-    maintenance?.unref?.();
+    let maintenance = null;
+    const finishServe = (code) => {
+      process.exitCode = code;
+      try { process.disconnect?.(); } catch { /* no IPC channel */ }
+      // process.exit while libuv is already closing abort and socket handles
+      // trips a Windows assertion in uv async.c and the code becomes
+      // 0xC0000409 instead of 0. Give those closes a turn, then exit.
+      setTimeout(() => process.exit(code), 100);
+    };
     const shutdown = (signal) => {
       server.shutdown({
         signal,
@@ -125,14 +125,10 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
         },
       }).then(() => finishServe(0), () => finishServe(0));
     };
-    const finishServe = (code) => {
-      process.exitCode = code;
-      try { process.disconnect?.(); } catch { /* no IPC channel */ }
-      // process.exit while libuv is already closing abort and socket handles
-      // trips a Windows assertion in uv async.c and the code becomes
-      // 0xC0000409 instead of 0. Give those closes a turn, then exit.
-      setTimeout(() => process.exit(code), 100);
-    };
+    // The listening line is what tests wait on, and it is written from inside
+    // listen(). Handlers have to be in place before that write, or a signal
+    // that arrives in the same turn uses the default disposition and the
+    // process exits with a null status instead of 0.
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
     // Windows child.kill(SIGTERM/SIGINT) terminates the process without
@@ -141,6 +137,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     process.on('message', (message) => {
       if (message === 'SIGTERM' || message === 'SIGINT') process.emit(message);
     });
+    await listen(server, config, log);
+    if (config.llmCallLogPath) {
+      maintenance = setInterval(() => {
+        maintainLlmCallLog(config.llmCallLogPath).catch((err) => {
+          log.warn?.(`[gossip] LLM call log retention failed: ${err.message}`);
+        });
+      }, 60 * 60 * 1000);
+      maintenance.unref?.();
+    }
     return { server, store, adapter, config };
   }
 
