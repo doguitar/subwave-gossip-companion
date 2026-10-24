@@ -112,8 +112,6 @@ test('skill instructions escalate the rumor in character and never narrate drift
   const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
   const cohostedSkill = await readFile(new URL('../skills/station-gossip-cohosted/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /Take the first item/);
-  assert.match(skill, /Escalate/);
-  assert.match(skill, /more salacious/);
   assert.match(skill, /whose version you are hearing/);
   assert.match(skill, /your own scrap/);
   assert.match(skill, /stay silent/);
@@ -125,6 +123,20 @@ test('skill instructions escalate the rumor in character and never narrate drift
   assert.match(cohostedSkill, /One cohost being a subject does not make the reaction true for another/);
   assert.match(cohostedSkill, /never use an active persona's display name as a third-person subject/);
   for (const text of [skill, cohostedSkill]) {
+    assert.match(text, /only story you know/);
+    assert.match(text, /already inside that story/);
+    assert.match(text, /Do not keep a thread to the last telling/);
+    assert.match(text, /Do not compare it to a smaller version/);
+    assert.match(text, /argue with the last speaker/);
+    assert.match(text, /assume the listener or the other person on the mic heard the previous telling/);
+    assert.match(text, /Do not point at how the story got bigger/);
+    assert.match(text, /didn't just/);
+    assert.match(text, /not just anymore/);
+    assert.match(text, /understating/);
+    assert.match(text, /I think it was more/);
+    assert.match(text, /the word is/);
+    assert.match(text, /name the previous teller to dispute their scale/);
+    assert.doesNotMatch(text, /Escalate|more salacious|more grandiose|more costly|the version you were given|ties this rumor to the last telling/);
     const aboutMe = text.split(/(?<=\.)\s+/).filter((sentence) => sentence.includes('talking about me'));
     assert.ok(aboutMe.length >= 1);
     for (const sentence of aboutMe) {
@@ -146,6 +158,20 @@ test('skill instructions escalate the rumor in character and never narrate drift
   assert.doesNotMatch(spoken, /chang|drift|version|mixed up|earlier|before/i);
   assert.match(spoken, /transmitter/);
   assert.doesNotMatch(spoken, /skip twice/);
+  const reed = 'I heard the gastropod colonized the master bus. The slime dissolved the analog routing, and I suspect the creature is the only thing keeping us on the air.';
+  assert.match(reed, /colonized the master bus/);
+  assert.match(reed, /dissolved the analog routing/);
+  assert.match(reed, /only thing keeping us on the air/);
+  assert.match(reed, /I suspect/);
+  assert.doesNotMatch(reed, /didn't just|undersold|understat|not just|the word is|I think it was more/i);
+  const sadie = 'I heard the slug digested the master bus and is broadcasting a manifesto with its glowing guts.';
+  assert.match(sadie, /digested the master bus/);
+  assert.match(sadie, /manifesto/);
+  assert.doesNotMatch(sadie, /not just a handful of faders anymore|didn't just|understat|the word is|I think it was more/i);
+  const werner = 'I heard Riff Reaper say the mic was vibrating scrap from the engine room.';
+  assert.match(werner, /scrap from the engine room/);
+  assert.match(werner, /Riff Reaper say/);
+  assert.doesNotMatch(werner, /I think it was more|didn't just|not just|understat|the word is/i);
 });
 
 test('cohosted skill exposes the same structured rumor contract', async () => {
