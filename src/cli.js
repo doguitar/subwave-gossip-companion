@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { applyDotEnv, parseRefreshCount, requireConfig } from './config.js';
+import { applySettings, parseRefreshCount, requireConfig } from './config.js';
 import { ensurePromptWorkspace, warnIfPromptDrift } from './promptWorkspace.js';
 import { GossipStore } from './store.js';
 import { acquireServerOwnership } from './workspaceLock.js';
@@ -22,7 +22,7 @@ export function applyCliOptions(argv, env) {
   const baseDir = baseDirFromArgs(argv);
   if (baseDir) env.GOSSIP_BASE_DIR = baseDir;
   const envDir = baseDir || env.GOSSIP_BASE_DIR || '.';
-  applyDotEnv(path.resolve(envDir, '.env'), env);
+  applySettings(path.resolve(envDir), env);
 }
 
 function flagValue(argv, name) {

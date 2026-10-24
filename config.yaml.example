@@ -1,0 +1,52 @@
+# Operator settings for the gossip companion. Flat keys only; nested values are ignored.
+# Same key names as .env.example, including documented aliases.
+#
+# A scalar whose entire text is os.environ/NAME is read from the process environment
+# after .env has loaded. .env still fills only missing or empty variables.
+# Any other scalar is a literal. Quote booleans, null, and numbers so YAML does not coerce them.
+# A non-empty variable already set in the process environment before either file is read
+# wins over a YAML literal. A YAML literal overrides a value that came only from .env.
+# A reference is never kept as the text os.environ/.... If that variable is missing or empty,
+# the setting stays unset.
+#
+# On startup, keys with no active entry are listed once at the bottom under a comment
+# whose text is exactly "Missing config options". A later start updates that block in place.
+
+GOSSIP_BASE_DIR: "."
+GOSSIP_TYPES_PATH: gossip-types.json
+SUBWAVE_API_URL: https://your-station.example/api
+SUBWAVE_API_USER: os.environ/SUBWAVE_API_USER
+SUBWAVE_API_PASSWORD: os.environ/SUBWAVE_API_PASSWORD
+SUBWAVE_API_TOKEN: os.environ/SUBWAVE_API_TOKEN
+PROVIDER: openai
+PROVIDER_KEY: os.environ/PROVIDER_KEY
+PROVIDER_MODEL: gpt-4o-mini
+PROVIDER_THINKING: ""
+OPENAI_BASE_URL: https://api.openai.com/v1
+GOSSIP_REFRESH_COUNT: "1"
+GOSSIP_REFRESH_SECRET: os.environ/GOSSIP_REFRESH_SECRET
+GOSSIP_REFRESH_MAX_CONCURRENCY: "1"
+GOSSIP_REFRESH_MIN_INTERVAL_MS: "60000"
+GOSSIP_REFRESH_BODY_MAX_BYTES: "16384"
+GOSSIP_HEADERS_TIMEOUT_MS: "10000"
+GOSSIP_REQUEST_TIMEOUT_MS: "30000"
+GOSSIP_SHUTDOWN_DEADLINE_MS: "5000"
+GOSSIP_HOST: "0.0.0.0"
+GOSSIP_PORT: "8080"
+GOSSIP_STATE_PATH: data/gossip-state.json
+GOSSIP_SEED_CAP: "5"
+GOSSIP_HISTORY_GENERATIONS: "7"
+GOSSIP_REVIEW_ROUNDS: "0"
+GOSSIP_THREAD_MAX_TELLINGS: "3"
+GOSSIP_THREAD_MAX_AGE_MS: "86400000"
+GOSSIP_FEED_BASE_URL: ""
+GOSSIP_MIN_RUMOR_LENGTH: "20"
+GOSSIP_TIMEZONE: ""
+GOSSIP_LLM_FIXTURE: ""
+GOSSIP_LLM_CALL_LOG: logs/llm-calls.jsonl
+GOSSIP_LLM_LOG_CONTENT: metadata
+GOSSIP_TTS_TIMEOUT_MS: "300000"
+GOSSIP_TTS_POLL_MS: "3000"
+GOSSIP_OPERATIONAL_LOG: logs/gossip.log
+GOSSIP_OPERATIONAL_LOG_MAX_BYTES: "524288"
+GOSSIP_OPERATIONAL_LOG_RETENTION_MS: "604800000"

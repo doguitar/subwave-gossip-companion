@@ -251,3 +251,26 @@ test('operator README documents corrupt state refusal and manual restore', async
   assert.match(readme, /Do not delete the file/);
   assert.match(readme, /empty board/);
 });
+
+test('operator README documents YAML settings and the example keeps secrets as env references', async () => {
+  const [readme, example] = await Promise.all([
+    readArtifact('README.md'),
+    readArtifact('config.yaml.example'),
+  ]);
+  assert.match(readme, /config\.yaml/);
+  assert.match(readme, /os\.environ\/NAME/);
+  assert.match(readme, /Missing config options/);
+  assert.match(readme, /--base-dir` wins/);
+  assert.match(readme, /A missing file is ignored/);
+  assert.match(readme, /any other read error names the path/);
+  assert.match(readme, /wins over a YAML literal/);
+  assert.match(readme, /overrides a value that came only from `\.env`/);
+  assert.match(example, /^SUBWAVE_API_PASSWORD: os\.environ\/SUBWAVE_API_PASSWORD$/m);
+  assert.match(example, /^SUBWAVE_API_TOKEN: os\.environ\/SUBWAVE_API_TOKEN$/m);
+  assert.match(example, /^PROVIDER_KEY: os\.environ\/PROVIDER_KEY$/m);
+  assert.match(example, /^GOSSIP_REFRESH_SECRET: os\.environ\/GOSSIP_REFRESH_SECRET$/m);
+  assert.match(example, /^GOSSIP_PORT: "8080"$/m);
+  assert.match(example, /^GOSSIP_REVIEW_ROUNDS: "0"$/m);
+  assert.match(example, /^PROVIDER_THINKING: ""$/m);
+  assert.doesNotMatch(example, /:\s*(?:secret|password|changeme)\b/i);
+});
