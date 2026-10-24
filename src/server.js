@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import { parseRefreshCount } from './config.js';
 import { currentTidbits, gossipForActor, stateFileReadable } from './store.js';
+import { personasForShow } from './subwave.js';
+import { retellableRumor } from './validate.js';
 import { buildRss } from './rss.js';
 import { createFollowupWatcher } from './followup.js';
 import { refreshGossip } from './seed.js';
@@ -104,9 +106,87 @@ function gossipFeedSelfLink(feedBaseUrl, requestUrl, show, actor) {
   return link;
 }
 
-export function buildTidbitPage(tidbits) {
+function displayName(persona) {
+  return persona && typeof persona.name === 'string' && persona.name.trim() && persona.name !== persona.id
+    ? persona.name.trim()
+    : '';
+}
+
+function showTitleFrom(value) {
+  if (typeof value === 'string') return value.trim();
+  if (value && typeof value === 'object') {
+    const name = value.name || value.title || value.show;
+    if (typeof name === 'string') return name.trim();
+  }
+  return '';
+}
+
+async function resolveShowRumors({ adapter, store, config, now }) {
+  let activePayload;
+  try {
+    activePayload = await adapter.getNowPlaying();
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  let title = showTitleFrom(activePayload?.activeShow);
+  if (!title) {
+    try {
+      const session = await adapter.getSession();
+      title = showTitleFrom(session?.session?.show || session?.show || '');
+    } catch {
+      return { kind: 'unavailable' };
+    }
+  }
+  if (!title) return { kind: 'none' };
+  let schedule;
+  try {
+    schedule = await adapter.getSchedule();
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  const resolved = personasForShow(schedule, title);
+  if (!resolved.matched) return { kind: 'show', title, names: null, rumors: [] };
+  const personas = resolved.personas;
+  const names = personas.length ? personas.map(displayName).filter(Boolean) : null;
+  const ordered = personas.length
+    ? gossipForActor(store.snapshot(), personas.map((persona) => persona.id), '', title, {
+      now: now(),
+      policy: {
+        maxTellings: config.threadMaxTellings,
+        maxAgeMs: config.threadMaxAgeMs,
+      },
+    })
+    : [];
+  const personaById = new Map(personas.map((persona) => [persona.id, persona]));
+  const rumors = ordered.map((item) => ({
+    text: retellableRumor(item.text),
+    tellerName: displayName(personaById.get(item.tellerPersonaId)),
+    hearerNames: (item.hearerPersonaIds || []).map((id) => displayName(personaById.get(id))).filter(Boolean),
+  }));
+  return { kind: 'show', title, names, rumors };
+}
+
+function renderShowRumors(section) {
+  if (!section || section.kind === 'unavailable') {
+    return '<h2>Show rumors</h2><p>The current show could not be loaded.</p>';
+  }
+  if (section.kind === 'none') {
+    return '<h2>Show rumors</h2><p>No current show is on air.</p>';
+  }
+  // null: no personas. []: personas resolved, but none have a public name.
+  const djLine = Array.isArray(section.names)
+    ? `<p>${section.names.map((name) => escapeHtml(name)).join(', ')}</p>`
+    : '';
+  const items = (section.rumors || []).map((rumor) => {
+    const names = [rumor.tellerName, ...(rumor.hearerNames || [])].filter(Boolean);
+    return `<li>${escapeHtml(rumor.text)}${names.map((name) => `<i>${escapeHtml(name)}</i>`).join('')}</li>`;
+  }).join('');
+  return `<h2>Show rumors</h2><p>${escapeHtml(section.title)}</p>${djLine}<ol>${items}</ol>`;
+}
+
+export function buildTidbitPage(tidbits, section) {
   const items = tidbits.map((tidbit) => `<li>${escapeHtml(tidbit.text)}</li>`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Station Gossip</title></head><body><h1>Station Gossip</h1><ol>${items}</ol></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Station Gossip</title></head><body><h1>Station Gossip</h1><ol>${items}</ol>${renderShowRumors(section)}</body></html>`;
 }
 function secretDigest(value) {
   return createHash('sha256').update(value).digest();
@@ -228,8 +308,14 @@ export function createServer({
       }
       if (req.method === 'GET' && url.pathname === '/') {
         await store.reloadIfStale?.();
+        let section = { kind: 'unavailable' };
+        try {
+          section = await resolveShowRumors({ adapter, store, config, now });
+        } catch {
+          section = { kind: 'unavailable' };
+        }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(buildTidbitPage(currentTidbits(store.snapshot())));
+        res.end(buildTidbitPage(currentTidbits(store.snapshot()), section));
         return;
       }
       log.info?.(`[gossip] ${req.method} ${url.pathname}${url.search} from ${remote}`);
@@ -392,14 +478,9 @@ export function createServer({
       const personaById = new Map(personas.map((p) => [p.id, p]));
       const items = ordered.map((item) => {
         const persona = personaById.get(item.tellerPersonaId);
-        const tellerName = persona && typeof persona.name === 'string' && persona.name.trim() && persona.name !== persona.id
-          ? persona.name.trim()
-          : '';
+        const tellerName = displayName(persona);
         const hearerNames = (item.hearerPersonaIds || [])
-          .map((id) => personaById.get(id))
-          .map((hearer) => (typeof hearer?.name === 'string' && hearer.name.trim() && hearer.name !== hearer.id
-            ? hearer.name.trim()
-            : ''))
+          .map((id) => displayName(personaById.get(id)))
           .filter(Boolean)
           .join(', ');
         return { ...item, ...(tellerName ? { tellerName } : {}), ...(hearerNames ? { hearerNames } : {}) };

@@ -115,6 +115,10 @@ export class SubwaveAdapter {
     return this.request('/session', { signal });
   }
 
+  async getNowPlaying({ signal } = {}) {
+    return this.request('/now-playing', { signal });
+  }
+
   async getDebug({ signal } = {}) {
     return this.request('/debug', { signal });
   }

@@ -23,7 +23,7 @@ The process binds `GOSSIP_HOST` (default `0.0.0.0`) and `GOSSIP_PORT` (default `
 
 | Route | Auth | Success | Errors |
 |---|---|---|---|
-| `GET /` | none | `200` `text/html` of the current rumor texts | |
+| `GET /` | none | `200` `text/html`. "Station Gossip" lists every current rumor text. A later "Show rumors" heading names the show on air (the scheduled show, otherwise the session title), its DJs (host, then guests, public names only), and the rumors that show's feed would serve with no actor. When personas resolve but none have a public name, the DJ line is empty and ids are not printed. No resolved personas omits the DJ line. No current show says "No current show is on air." with no DJ names and no rumors. An unmatched title is that title alone, with no DJ line and no rumors | Still `200` when that show cannot be loaded. The section says the current show could not be loaded |
 | `GET /health` | none | `200` `text/plain` body `ok` | |
 | `GET /ready` | none | `200` JSON `{ "ready": true }` when the state file reads and the station schedule loads | `503` JSON `{ "ready": false, "checks": { "state", "subwave" } }` |
 | `POST /refresh`, `POST /gossip/refresh` | `Authorization: Bearer` equal to `GOSSIP_REFRESH_SECRET` | `200` JSON refresh result (`refreshed`, `tidbits`, and the rest of the refresh payload) | `401` `{ "error": "unauthorized" }`; `GET` is `405` with `Allow: POST`; `413` `{ "error": "request body too large" }`; `408` `{ "error": "request body timed out" }`; `400` `{ "error": "invalid JSON body" }` or the count message; `429` `{ "error": "refresh admission limit exceeded" }`; `503` `{ "error": "shutting down" }` |
@@ -80,6 +80,6 @@ The process binds `GOSSIP_HOST` (default `0.0.0.0`) and `GOSSIP_PORT` (default `
 
 ## Privacy
 
-`GET /` and `GET /gossip.rss` are unauthenticated. The HTML page shows current rumor text. RSS shows retellable rumor bodies and, when names resolve, teller and hearer display names. Persona ids are not in the feed. Refresh is the only route that checks `GOSSIP_REFRESH_SECRET`.
+`GET /` and `GET /gossip.rss` are unauthenticated. The HTML page shows current rumor text, then a Show rumors section. When a show title resolves, that section publishes the same unauthenticated fiction as the no-actor show feed. When no show is on air, the section says so and lists no rumors. When the show cannot be loaded, the section says the current show could not be loaded. RSS shows retellable rumor bodies and, when names resolve, teller and hearer display names. Persona ids are not on the page or in the feed. Refresh is the only route that checks `GOSSIP_REFRESH_SECRET`.
 
 `GOSSIP_LLM_LOG_CONTENT=metadata` stores version, time, ids, kind, provider, model, retry, stage, and when present elapsed time, status, usage, and a redacted detail. It drops prompt, message, soul, house-rule, and response bodies. `full` retains those bodies. `off`, or an empty `GOSSIP_LLM_CALL_LOG`, writes no call log. The operational log records one-line summaries and redacts provider credentials. Keep `logs/` owner-readable and out of shared backups.

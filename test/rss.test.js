@@ -98,6 +98,197 @@ test('root page lists active tidbits in board order and escapes HTML', async () 
   assert.match(html, /<ol><li>&lt;first&gt;<\/li><li>second &amp; more<\/li><\/ol>/);
 });
 
+const STORED_BOARD = '<ol><li>Alpha told Beta, &quot;The spare mic is in the green room.&quot;</li><li>Gamma kept this one</li><li>Booth rumor from the host</li></ol>';
+const ON_AIR_RUMORS = '<h2>Show rumors</h2><p>On Air</p><p>Alpha, Beta</p><ol><li>Booth rumor from the host<i>Alpha</i></li><li>The spare mic is in the green room.<i>Alpha</i><i>Beta</i></li></ol>';
+
+function showBoard() {
+  return {
+    tidbits: [
+      tidbit({
+        text: 'Alpha told Beta, "The spare mic is in the green room."',
+        tellerPersonaId: PERSONA_A.id,
+        hearerPersonaIds: [PERSONA_B.id],
+        createdAt: '2026-09-19T03:00:00.000Z',
+      }),
+      tidbit({
+        text: 'Gamma kept this one',
+        tellerPersonaId: 'p_c',
+        hearerPersonaIds: ['p_c'],
+        createdAt: '2026-09-19T01:00:00.000Z',
+      }),
+      tidbit({
+        text: 'Booth rumor from the host',
+        tellerPersonaId: PERSONA_A.id,
+        hearerPersonaIds: [],
+        createdAt: '2026-09-19T02:00:00.000Z',
+      }),
+    ],
+  };
+}
+
+test('show rumors names the on-air show, falls back to the session, and keeps the board when the station read fails', async () => {
+  const { store } = await tempStore(showBoard());
+  const onAir = await start(store, stubAdapter({
+    show: 'On Air',
+    nowPlaying: { activeShow: { name: 'On Air' } },
+    session: { session: { show: 'Incoming Hour' } },
+  }));
+  const onAirRes = await fetch(`${onAir}/`);
+  assert.equal(onAirRes.status, 200);
+  const onAirHtml = await onAirRes.text();
+  assert.ok(onAirHtml.indexOf('<h1>Station Gossip</h1>') < onAirHtml.indexOf(STORED_BOARD));
+  assert.ok(onAirHtml.indexOf(STORED_BOARD) < onAirHtml.indexOf('<h2>Show rumors</h2>'));
+  assert.ok(onAirHtml.includes(ON_AIR_RUMORS));
+  assert.doesNotMatch(onAirHtml.split('<h2>Show rumors</h2>')[1], /Incoming Hour|Gamma kept|p_a|p_b|p_c/);
+
+  const { store: sessionStore } = await tempStore(showBoard());
+  const sessionBase = await start(sessionStore, stubAdapter({
+    show: 'On Air',
+    nowPlaying: { activeShow: null },
+    session: { session: { show: 'On Air' } },
+  }));
+  const sessionRes = await fetch(`${sessionBase}/`);
+  assert.equal(sessionRes.status, 200);
+  const sessionHtml = await sessionRes.text();
+  assert.ok(sessionHtml.includes(STORED_BOARD));
+  assert.ok(sessionHtml.indexOf(STORED_BOARD) < sessionHtml.indexOf('<h2>Show rumors</h2>'));
+  assert.ok(sessionHtml.includes(ON_AIR_RUMORS));
+
+  const { store: failedStore } = await tempStore(showBoard());
+  const failedBase = await start(failedStore, stubAdapter({
+    show: 'On Air',
+    failNowPlaying: true,
+    session: { session: { show: 'On Air' } },
+  }));
+  const failedRes = await fetch(`${failedBase}/`);
+  assert.equal(failedRes.status, 200);
+  const failedHtml = await failedRes.text();
+  assert.ok(failedHtml.includes(STORED_BOARD));
+  assert.ok(failedHtml.indexOf(STORED_BOARD) < failedHtml.indexOf('<h2>Show rumors</h2>'));
+  const failedSection = failedHtml.split('<h2>Show rumors</h2>')[1];
+  assert.match(failedSection, /The current show could not be loaded\./);
+  assert.doesNotMatch(failedSection, /On Air|Booth rumor|spare mic|Alpha|Beta/);
+});
+
+test('show rumors says when nothing is on air', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({ text: 'Board only rumor' })],
+  });
+  const base = await start(store, stubAdapter({
+    nowPlaying: { activeShow: { name: '   ' } },
+    session: { session: { show: '' } },
+  }));
+  const res = await fetch(`${base}/`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /<h1>Station Gossip<\/h1><ol><li>Board only rumor<\/li><\/ol>/);
+  assert.equal(html.split('<h2>Show rumors</h2>')[1], '<p>No current show is on air.</p></body></html>');
+});
+
+test('show rumors keeps a nameless DJ line and shows an unmatched title alone', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({
+      text: 'Only the booth knows',
+      tellerPersonaId: PERSONA_A.id,
+      hearerPersonaIds: [PERSONA_B.id],
+      createdAt: '2026-09-19T02:00:00.000Z',
+    })],
+  });
+  const namelessBase = await start(store, stubAdapter({
+    show: 'Quiet Hour',
+    schedulePersonas: [
+      { id: PERSONA_A.id, name: PERSONA_A.id },
+      { id: PERSONA_B.id, name: PERSONA_B.id },
+    ],
+    nowPlaying: { activeShow: { name: 'Quiet Hour' } },
+  }));
+  const namelessHtml = await (await fetch(`${namelessBase}/`)).text();
+  assert.equal(namelessHtml.split('<h2>Show rumors</h2>')[1], '<p>Quiet Hour</p><p></p><ol><li>Only the booth knows</li></ol></body></html>');
+  assert.doesNotMatch(namelessHtml, /p_a|p_b|p_c/);
+
+  const { store: unknownStore } = await tempStore({
+    tidbits: [tidbit({ text: 'Only the booth knows', tellerPersonaId: PERSONA_A.id })],
+  });
+  const unknownBase = await start(unknownStore, stubAdapter({
+    show: 'On Air',
+    nowPlaying: { activeShow: { name: 'No Such Show' } },
+  }));
+  const unknownHtml = await (await fetch(`${unknownBase}/`)).text();
+  assert.equal(unknownHtml.split('<h2>Show rumors</h2>')[1], '<p>No Such Show</p><ol></ol></body></html>');
+  assert.match(unknownHtml, /<li>Only the booth knows<\/li>/);
+});
+
+test('show rumors escapes the show line and reports schedule or session load failure', async () => {
+  const { store } = await tempStore({
+    tidbits: [tidbit({
+      text: 'Alpha told Beta, "1 < 2 & 3"',
+      tellerPersonaId: PERSONA_A.id,
+      hearerPersonaIds: [PERSONA_B.id],
+      createdAt: '2026-09-19T02:00:00.000Z',
+    })],
+  });
+  const escapedBase = await start(store, stubAdapter({
+    show: 'Rock & Roll',
+    schedulePersonas: [
+      { id: PERSONA_A.id, name: 'A<B>' },
+      { id: PERSONA_B.id, name: 'Be"ta' },
+    ],
+    nowPlaying: { activeShow: { name: 'Rock & Roll' } },
+    session: { session: { show: 'p_a incoming' } },
+  }));
+  const escapedRes = await fetch(`${escapedBase}/`);
+  assert.equal(escapedRes.status, 200);
+  const escapedHtml = await escapedRes.text();
+  assert.equal(
+    escapedHtml.split('<h2>Show rumors</h2>')[1],
+    '<p>Rock &amp; Roll</p><p>A&lt;B&gt;, Be&quot;ta</p><ol><li>1 &lt; 2 &amp; 3<i>A&lt;B&gt;</i><i>Be&quot;ta</i></li></ol></body></html>',
+  );
+  assert.doesNotMatch(escapedHtml, /p_a|p_b|p_c/);
+
+  const { store: scheduleStore } = await tempStore({
+    tidbits: [tidbit({ text: 'Board only rumor' })],
+  });
+  const scheduleBase = await start(scheduleStore, stubAdapter({
+    show: 'On Air',
+    failSchedule: true,
+    nowPlaying: { activeShow: { name: 'On Air' } },
+  }));
+  const scheduleRes = await fetch(`${scheduleBase}/`);
+  assert.equal(scheduleRes.status, 200);
+  const scheduleHtml = await scheduleRes.text();
+  assert.match(scheduleHtml, /<li>Board only rumor<\/li>/);
+  assert.equal(scheduleHtml.split('<h2>Show rumors</h2>')[1], '<p>The current show could not be loaded.</p></body></html>');
+
+  const { store: sessionStore } = await tempStore({
+    tidbits: [tidbit({ text: 'Board only rumor' })],
+  });
+  const sessionBase = await start(sessionStore, stubAdapter({
+    failSession: true,
+    nowPlaying: { activeShow: null },
+    session: { session: { show: 'On Air' } },
+  }));
+  const sessionHtml = await (await fetch(`${sessionBase}/`)).text();
+  assert.match(sessionHtml, /<li>Board only rumor<\/li>/);
+  assert.equal(sessionHtml.split('<h2>Show rumors</h2>')[1], '<p>The current show could not be loaded.</p></body></html>');
+
+  const { store: keptStore } = await tempStore({
+    tidbits: [tidbit({
+      text: 'Booth rumor from the host',
+      tellerPersonaId: PERSONA_A.id,
+      hearerPersonaIds: [],
+      createdAt: '2026-09-19T02:00:00.000Z',
+    })],
+  });
+  const keptBase = await start(keptStore, stubAdapter({
+    show: 'On Air',
+    failSession: true,
+    nowPlaying: { activeShow: { name: 'On Air' } },
+  }));
+  const keptHtml = await (await fetch(`${keptBase}/`)).text();
+  assert.match(keptHtml, /<h2>Show rumors<\/h2><p>On Air<\/p><p>Alpha, Beta<\/p><ol><li>Booth rumor from the host<i>Alpha<\/i><\/li><\/ol>/);
+  assert.doesNotMatch(keptHtml, /could not be loaded/);
+});
+
 test('schedule unavailable returns JSON error instead of empty RSS', async () => {
   const { store } = await tempStore({
     tidbits: [tidbit({ text: 'Should not leak' })],
