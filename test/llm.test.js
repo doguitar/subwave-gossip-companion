@@ -643,7 +643,7 @@ test('appendLlmCall rolls the active log when the next line would exceed 512 KiB
   const dir = await mkdtemp(path.join(tmpdir(), 'gossip-llm-log-'));
   const logPath = path.join(dir, 'llm-calls.jsonl');
   await writeFile(logPath, 'x'.repeat(LLM_CALL_LOG_MAX_BYTES), 'utf8');
-  const record = { at: '2026-10-17T00:00:00.000Z', response: { text: 'rolled' } };
+  const record = { at: new Date().toISOString(), response: { text: 'rolled' } };
   await appendLlmCall(logPath, record);
 
   const active = await readFile(logPath, 'utf8');
@@ -663,7 +663,7 @@ test('appendLlmCall deletes rolled segments older than seven days', async () => 
   const eightDaysAgo = new Date(Date.now() - LLM_CALL_LOG_RETENTION_MS - 24 * 60 * 60 * 1000);
   await utimes(stalePath, eightDaysAgo, eightDaysAgo);
 
-  await appendLlmCall(logPath, { at: '2026-10-17T00:00:00.000Z', response: { text: 'fresh' } });
+  await appendLlmCall(logPath, { at: new Date().toISOString(), response: { text: 'fresh' } });
 
   const names = await readdir(dir);
   assert.equal(names.includes('llm-calls.1111111111111.jsonl'), false);
