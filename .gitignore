@@ -1,4 +1,5 @@
 .env
+config.yaml
 data/*.json
 *.tmp
 node_modules/

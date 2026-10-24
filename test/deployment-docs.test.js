@@ -96,11 +96,12 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
 });
 
 test('operator docs state the shutdown deadline and orchestrator grace rule', async () => {
-  const [readme, example] = await Promise.all([
+  const [readme, example, settings] = await Promise.all([
     readArtifact('README.md'),
     readArtifact('.env.example'),
+    readArtifact('config.yaml.example'),
   ]);
-  for (const text of [readme, example]) {
+  for (const text of [readme, example, settings]) {
     assert.match(text, /GOSSIP_SHUTDOWN_DEADLINE_MS/);
     assert.match(text, /5000/);
     assert.match(text, /strictly longer than (?:the|this|that) deadline plus the five-second exclusive state-lock wait/);
@@ -114,11 +115,12 @@ test('operator docs state the shutdown deadline and orchestrator grace rule', as
 });
 
 test('operator docs state operational log size and retention', async () => {
-  const [readme, example] = await Promise.all([
+  const [readme, example, settings] = await Promise.all([
     readArtifact('README.md'),
     readArtifact('.env.example'),
+    readArtifact('config.yaml.example'),
   ]);
-  for (const text of [readme, example]) {
+  for (const text of [readme, example, settings]) {
     assert.match(text, /GOSSIP_OPERATIONAL_LOG_MAX_BYTES/);
     assert.match(text, /524288/);
     assert.match(text, /512 KiB/);
@@ -250,6 +252,30 @@ test('operator README documents corrupt state refusal and manual restore', async
   assert.match(readme, /external editor/);
   assert.match(readme, /Do not delete the file/);
   assert.match(readme, /empty board/);
+});
+
+test('operator instructions describe config.yaml and ignore the generated file', async () => {
+  const [readme, reference, example, ignore, agents] = await Promise.all([
+    readArtifact('README.md'),
+    readArtifact('docs/reference.md'),
+    readArtifact('config.yaml.example'),
+    readArtifact('.gitignore'),
+    readArtifact('AGENTS.md'),
+  ]);
+  assert.match(readme, /config\.yaml/);
+  assert.match(readme, /config\.yaml\.example/);
+  assert.match(readme, /os\.environ\//);
+  assert.match(readme, /Missing config options/);
+  assert.match(readme, /--base` is set|--base` nor `--base`/);
+  assert.match(reference, /config\.yaml/);
+  assert.match(reference, /config\.yaml\.example/);
+  for (const key of ['SUBWAVE_API_PASSWORD', 'SUBWAVE_API_TOKEN', 'GOSSIP_REFRESH_SECRET', 'PROVIDER_KEY']) {
+    assert.match(example, new RegExp(`${key}: os\\.environ\\/${key}`));
+  }
+  assert.match(ignore, /^config\.yaml$/m);
+  assert.doesNotMatch(ignore, /config\.yaml\.example/);
+  assert.match(agents, /Do not commit `\.env`/);
+  assert.match(agents, /`config\.yaml`/);
 });
 
 test('operator README documents YAML settings and the example keeps secrets as env references', async () => {

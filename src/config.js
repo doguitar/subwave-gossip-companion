@@ -303,7 +303,7 @@ export function applyDotEnv(filePath = path.resolve('.env'), env = process.env) 
       if (env[key] == null || env[key] === '') env[key] = value;
     }
   } catch (err) {
-    if (err && err.code === 'ENOENT') return env;
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) return env;
     const failure = new Error(`Cannot read env file ${target}: ${err?.message || err}`);
     failure.code = err?.code;
     failure.cause = err;
@@ -377,6 +377,7 @@ function applyYamlSettings(filePath, env, preset) {
   try {
     raw = readFileSync(filePath, 'utf8');
   } catch (err) {
+    if (err?.code === 'ENOTDIR') return env;
     if (err?.code === 'ENOENT') {
       writeMissingSection(filePath, '');
       return;

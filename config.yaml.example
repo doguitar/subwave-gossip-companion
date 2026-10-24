@@ -30,6 +30,10 @@ GOSSIP_REFRESH_MIN_INTERVAL_MS: "60000"
 GOSSIP_REFRESH_BODY_MAX_BYTES: "16384"
 GOSSIP_HEADERS_TIMEOUT_MS: "10000"
 GOSSIP_REQUEST_TIMEOUT_MS: "30000"
+# How long serve drains an admitted refresh or follow-up watch after SIGTERM or SIGINT (integer 0-3600000). Default 5000. 0 skips that wait.
+# The orchestrator stop grace has to be strictly longer than this deadline plus the five-second exclusive state-lock wait.
+# Docker's default grace of 10 seconds is not long enough for the default deadline: set it to at least 15 seconds
+# (docker run --stop-timeout, docker stop --time, Compose stop_grace_period). Unraid uses Docker's stop grace and needs the same setting.
 GOSSIP_SHUTDOWN_DEADLINE_MS: "5000"
 GOSSIP_HOST: "0.0.0.0"
 GOSSIP_PORT: "8080"
@@ -47,6 +51,10 @@ GOSSIP_LLM_CALL_LOG: logs/llm-calls.jsonl
 GOSSIP_LLM_LOG_CONTENT: metadata
 GOSSIP_TTS_TIMEOUT_MS: "300000"
 GOSSIP_TTS_POLL_MS: "3000"
+# Active operational log. The next line that would pass GOSSIP_OPERATIONAL_LOG_MAX_BYTES renames it to gossip.<milliseconds>.log.
 GOSSIP_OPERATIONAL_LOG: logs/gossip.log
+# Maximum active operational log size in bytes (integer 1-1073741824). Default 524288 (512 KiB).
 GOSSIP_OPERATIONAL_LOG_MAX_BYTES: "524288"
+# How long operational log segments are kept, in milliseconds (integer 1-31536000000). Default 604800000 (seven days).
+# Segments older than this are deleted at startup and on each append. Line text is not rewritten.
 GOSSIP_OPERATIONAL_LOG_RETENTION_MS: "604800000"
