@@ -151,6 +151,12 @@ test('operator reference covers commands, routes, env, and privacy', async () =>
   assert.match(reference, /full/);
 });
 
+test('operator reference describes the Show rumors section on GET /', async () => {
+  const reference = await readArtifact('docs/reference.md');
+  assert.match(reference, /\| `GET \/` \|[\s\S]*Show rumors/);
+  assert.match(reference, /same unauthenticated fiction as the no-actor show feed/);
+});
+
 test('contributor guidance routes changes and separates issue kinds', async () => {
   const [agents, contributing, checklist, companion, subwave, operator, readme] = await Promise.all([
     readArtifact('AGENTS.md'),

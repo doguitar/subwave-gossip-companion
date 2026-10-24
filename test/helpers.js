@@ -15,14 +15,18 @@ export function stubAdapter({
   personas = [PERSONA_A, PERSONA_B],
   events = [],
   failSchedule = false,
+  failNowPlaying = false,
+  failSession = false,
   session = { messages: [] },
+  nowPlaying = { activeShow: null },
+  schedulePersonas,
 } = {}) {
   return {
     async getSchedule() {
       if (failSchedule) throw new Error('schedule down');
       return {
         timezone: 'UTC',
-        personas: [PERSONA_A, PERSONA_B, PERSONA_C],
+        personas: schedulePersonas || [PERSONA_A, PERSONA_B, PERSONA_C],
         shows: [
           { name: show, personaId: PERSONA_A.id, guestPersonaIds: [PERSONA_B.id] },
           { name: 'Empty Show', personaId: null, guestPersonaIds: [] },
@@ -46,7 +50,12 @@ export function stubAdapter({
     async getSpokenEvents() {
       return { events, cursor: events.at(-1)?.sourceEventId || null };
     },
+    async getNowPlaying() {
+      if (failNowPlaying) throw new Error('now playing down');
+      return nowPlaying;
+    },
     async getSession() {
+      if (failSession) throw new Error('session down');
       return session;
     },
     async getDebug() {
