@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 import path from 'node:path';
 
@@ -310,4 +310,211 @@ export function applyDotEnv(filePath = path.resolve('.env'), env = process.env) 
     throw failure;
   }
   return env;
+}
+
+const MISSING_HEADER = '# Missing config options';
+const ENV_REFERENCE = /^os\.environ\/([A-Za-z_][A-Za-z0-9_]*)$/;
+// shortcut: copied from loadConfig, update both when a reader default changes.
+const SETTINGS = [
+  ['GOSSIP_BASE_DIR', '.'],
+  ['GOSSIP_TYPES_PATH', 'gossip-types.json'],
+  ['SUBWAVE_API_URL', null],
+  ['SUBWAVE_API_USER', null],
+  ['SUBWAVE_API_PASSWORD', null],
+  ['SUBWAVE_API_TOKEN', null],
+  ['PROVIDER', 'openai'],
+  ['GOSSIP_LLM_PROVIDER', 'openai'],
+  ['PROVIDER_KEY', null],
+  ['GOSSIP_LLM_API_KEY', null],
+  ['OPENAI_API_KEY', null],
+  ['ANTHROPIC_API_KEY', null],
+  ['GOOGLE_API_KEY', null],
+  ['PROVIDER_MODEL', DEFAULT_MODELS.openai],
+  ['GOSSIP_LLM_MODEL', DEFAULT_MODELS.openai],
+  ['PROVIDER_THINKING', null],
+  ['GOSSIP_LLM_THINKING', null],
+  ['OPENAI_BASE_URL', DEFAULT_OPENAI_BASE_URL],
+  ['GOSSIP_LLM_URL', DEFAULT_OPENAI_BASE_URL],
+  ['GOSSIP_REFRESH_COUNT', '1'],
+  ['GOSSIP_REFRESH_SECRET', null],
+  ['GOSSIP_REFRESH_MAX_CONCURRENCY', String(DEFAULT_REFRESH_MAX_CONCURRENCY)],
+  ['GOSSIP_REFRESH_MIN_INTERVAL_MS', String(DEFAULT_REFRESH_MIN_INTERVAL_MS)],
+  ['GOSSIP_REFRESH_BODY_MAX_BYTES', String(DEFAULT_REFRESH_BODY_MAX_BYTES)],
+  ['GOSSIP_HEADERS_TIMEOUT_MS', String(DEFAULT_HTTP_HEADERS_TIMEOUT_MS)],
+  ['GOSSIP_REQUEST_TIMEOUT_MS', String(DEFAULT_HTTP_REQUEST_TIMEOUT_MS)],
+  ['GOSSIP_SHUTDOWN_DEADLINE_MS', String(DEFAULT_SHUTDOWN_DEADLINE_MS)],
+  ['GOSSIP_HOST', '0.0.0.0'],
+  ['GOSSIP_PORT', String(DEFAULT_PORT)],
+  ['GOSSIP_STATE_PATH', 'data/gossip-state.json'],
+  ['GOSSIP_SEED_CAP', String(DEFAULT_SEED_CAP)],
+  ['GOSSIP_HISTORY_GENERATIONS', String(DEFAULT_GOSSIP_HISTORY_GENERATIONS)],
+  ['GOSSIP_REVIEW_ROUNDS', String(DEFAULT_GOSSIP_REVIEW_ROUNDS)],
+  ['GOSSIP_THREAD_MAX_TELLINGS', String(DEFAULT_THREAD_MAX_TELLINGS)],
+  ['GOSSIP_THREAD_MAX_AGE_MS', String(DEFAULT_THREAD_MAX_AGE_MS)],
+  ['GOSSIP_FEED_BASE_URL', null],
+  ['GOSSIP_MIN_RUMOR_LENGTH', '20'],
+  ['GOSSIP_TIMEZONE', null],
+  ['GOSSIP_LLM_FIXTURE', null],
+  ['GOSSIP_LLM_CALL_LOG', 'logs/llm-calls.jsonl'],
+  ['GOSSIP_LLM_LOG_CONTENT', 'metadata'],
+  ['GOSSIP_TTS_TIMEOUT_MS', String(5 * 60 * 1000)],
+  ['GOSSIP_TTS_POLL_MS', '3000'],
+  ['GOSSIP_OPERATIONAL_LOG', 'logs/gossip.log'],
+  ['GOSSIP_OPERATIONAL_LOG_MAX_BYTES', String(OPERATIONAL_LOG_MAX_BYTES)],
+  ['GOSSIP_OPERATIONAL_LOG_RETENTION_MS', String(OPERATIONAL_LOG_RETENTION_MS)],
+];
+const SETTING_KEYS = new Set(SETTINGS.map(([key]) => key));
+
+export function applySettings(dir, env = process.env) {
+  const preset = new Set(Object.keys(env).filter((key) => env[key] != null && env[key] !== ''));
+  applyDotEnv(path.join(dir, '.env'), env);
+  applyYamlSettings(path.join(dir, 'config.yaml'), env, preset);
+  return env;
+}
+
+function applyYamlSettings(filePath, env, preset) {
+  let raw;
+  try {
+    raw = readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      writeMissingSection(filePath, '');
+      return;
+    }
+    throw settingsReadError(filePath, err);
+  }
+  const splitAt = missingHeaderIndex(raw);
+  const body = splitAt < 0 ? raw : raw.slice(0, splitAt);
+  applyYamlValues(parseFlatSettings(body).values, env, preset);
+  writeMissingSection(filePath, body);
+}
+
+function applyYamlValues(values, env, preset) {
+  const fromEnv = { ...env };
+  for (const [key, value] of values) {
+    if (!SETTING_KEYS.has(key)) continue;
+    if (typeof value === 'string') {
+      const ref = ENV_REFERENCE.exec(value);
+      if (ref) {
+        const resolved = fromEnv[ref[1]];
+        if (resolved == null || resolved === '') delete env[key];
+        else env[key] = String(resolved);
+        continue;
+      }
+    }
+    if (preset.has(key)) continue;
+    env[key] = value == null ? '' : String(value);
+  }
+}
+
+function settingsReadError(filePath, err) {
+  const failure = new Error(`Cannot read settings file ${filePath}: ${err?.message || err}`);
+  failure.code = err?.code;
+  failure.cause = err;
+  return failure;
+}
+
+function missingHeaderIndex(raw) {
+  const match = /(?:^|\r?\n)(# Missing config options)(?=\r?\n|$)/.exec(raw);
+  if (!match) return -1;
+  return match.index + match[0].length - match[1].length;
+}
+
+function missingSection(active) {
+  const lines = [MISSING_HEADER];
+  for (const [key, fallback] of SETTINGS) {
+    if (active.has(key)) continue;
+    lines.push(fallback == null ? `# ${key}:` : `# ${key}: ${fallback}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function writeMissingSection(filePath, body) {
+  const section = missingSection(parseFlatSettings(body).active);
+  const prefix = body && !body.endsWith('\n') ? `${body}\n` : body;
+  try {
+    writeFileSync(filePath, `${prefix}${section}`);
+  } catch {
+    // A failed write must not stop startup.
+  }
+}
+
+function parseFlatSettings(raw) {
+  const active = new Set();
+  const values = new Map();
+  const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line || line[0] === ' ' || line[0] === '\t') continue;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const colon = trimmed.indexOf(':');
+    if (colon <= 0) continue;
+    const key = trimmed.slice(0, colon).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    const parsed = parseYamlScalar(trimmed.slice(colon + 1));
+    // shortcut: single-line scalars only, upgrade if operators need block scalars.
+    if (parsed.skip || (parsed.value == null && followingLineIndented(lines, index))) continue;
+    active.add(key);
+    values.set(key, parsed.value);
+  }
+  return { active, values };
+}
+
+function followingLineIndented(lines, index) {
+  for (let i = index + 1; i < lines.length; i += 1) {
+    if (!lines[i].trim()) continue;
+    return lines[i][0] === ' ' || lines[i][0] === '\t';
+  }
+  return false;
+}
+
+function parseYamlScalar(raw) {
+  const text = raw.trim();
+  if (!text) return { value: null };
+  if (text.startsWith('"')) return { value: parseDoubleQuoted(text) };
+  if (text.startsWith("'")) return { value: parseSingleQuoted(text) };
+  if (text.startsWith('{') || text.startsWith('[') || text.startsWith('|') || text.startsWith('>')) {
+    return { skip: true };
+  }
+  const comment = text.search(/(?:^|\s)#/);
+  const plain = (comment < 0 ? text : text.slice(0, comment)).trim();
+  if (!plain) return { value: null };
+  if (/^(?:true|True|TRUE)$/.test(plain)) return { value: true };
+  if (/^(?:false|False|FALSE)$/.test(plain)) return { value: false };
+  if (/^(?:null|Null|NULL|~)$/.test(plain)) return { value: null };
+  if (/^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(plain)) return { value: Number(plain) };
+  return { value: plain };
+}
+
+function parseDoubleQuoted(text) {
+  let out = '';
+  for (let i = 1; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '\\') {
+      const next = text[i + 1];
+      const map = { n: '\n', t: '\t', r: '\r', '\\': '\\', '"': '"' };
+      out += map[next] ?? next ?? '';
+      i += 1;
+      continue;
+    }
+    if (ch === '"') return out;
+    out += ch;
+  }
+  return out;
+}
+
+function parseSingleQuoted(text) {
+  let out = '';
+  for (let i = 1; i < text.length; i += 1) {
+    if (text[i] === "'" && text[i + 1] === "'") {
+      out += "'";
+      i += 1;
+      continue;
+    }
+    if (text[i] === "'") return out;
+    out += text[i];
+  }
+  return out;
 }

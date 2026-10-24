@@ -6,29 +6,33 @@ Commands, HTTP routes, environment keys, and privacy are in [docs/reference.md](
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set the Subwave credentials and LLM provider. With no `--base-dir`, the CLI loads `./.env`. If `GOSSIP_BASE_DIR` is already set, it loads `$GOSSIP_BASE_DIR/.env` instead. `--base-dir` wins over that variable and loads `<base-dir>/.env`. A missing file is ignored; any other read error names the path and stops startup.
+Operator settings are a flat `config.yaml` in the same directory as `.env`. With no `--base-dir`, the CLI reads `./config.yaml` and `./.env`. If `GOSSIP_BASE_DIR` is already set, it reads `$GOSSIP_BASE_DIR/config.yaml` and `$GOSSIP_BASE_DIR/.env`. `--base-dir` wins over that variable and reads `<base-dir>/config.yaml` and `<base-dir>/.env`. A missing file is ignored; any other read error names the path and stops startup.
 
-```dotenv
-GOSSIP_BASE_DIR=.
-GOSSIP_TYPES_PATH=gossip-types.json
-SUBWAVE_API_URL=https://your-station.example/api
-SUBWAVE_API_USER=admin
-SUBWAVE_API_PASSWORD=secret
-PROVIDER=openai
-PROVIDER_KEY=...
-PROVIDER_MODEL=gpt-4o-mini
-OPENAI_BASE_URL=https://api.openai.com/v1
-PROVIDER_THINKING=
-GOSSIP_REFRESH_SECRET=use-a-long-random-operator-secret
-GOSSIP_REFRESH_MAX_CONCURRENCY=1
-GOSSIP_REFRESH_MIN_INTERVAL_MS=60000
-GOSSIP_REFRESH_BODY_MAX_BYTES=16384
-GOSSIP_HEADERS_TIMEOUT_MS=10000
-GOSSIP_REQUEST_TIMEOUT_MS=30000
-GOSSIP_SHUTDOWN_DEADLINE_MS=5000
-GOSSIP_REVIEW_ROUNDS=0
-GOSSIP_THREAD_MAX_TELLINGS=3
-GOSSIP_THREAD_MAX_AGE_MS=86400000
+`config.yaml` uses the same key names as `.env`, including documented aliases. Nested values are not settings. Copy `config.yaml.example` to `config.yaml`. A scalar whose entire text is `os.environ/NAME` is read from that process variable after `.env` loads. `.env` still fills only missing or empty variables and does not override a variable that is already set. Any other scalar is a literal. Quote booleans, `null`, and numbers so YAML does not coerce them. A non-empty variable already set in the process environment before either file is read wins over a YAML literal. A YAML literal overrides a value that came only from `.env`. A reference is never kept as the text `os.environ/...`. If that variable is missing or empty, the setting stays unset and the existing required-key checks apply.
+
+When the settings file can be written, keys with no active entry are listed once at the bottom under a comment whose text is exactly `Missing config options`. Each line is commented (`# KEY:` plus the default when the reader has one, otherwise `# KEY:`). A later start updates that block in place and does not add a second header. Comments and active entries above the header are left unchanged. If `config.yaml` is missing and the directory is writable, startup creates it with only that commented section. A failed write is ignored.
+
+Copy `.env.example` to `.env` so `os.environ/` references can resolve, and set the Subwave credentials and LLM provider there or in the process environment.
+
+```yaml
+# See config.yaml.example. Secrets stay os.environ/ references.
+SUBWAVE_API_URL: https://your-station.example/api
+SUBWAVE_API_PASSWORD: os.environ/SUBWAVE_API_PASSWORD
+PROVIDER: openai
+PROVIDER_KEY: os.environ/PROVIDER_KEY
+PROVIDER_MODEL: gpt-4o-mini
+OPENAI_BASE_URL: https://api.openai.com/v1
+PROVIDER_THINKING: ""
+GOSSIP_REFRESH_SECRET: os.environ/GOSSIP_REFRESH_SECRET
+GOSSIP_REFRESH_MAX_CONCURRENCY: "1"
+GOSSIP_REFRESH_MIN_INTERVAL_MS: "60000"
+GOSSIP_REFRESH_BODY_MAX_BYTES: "16384"
+GOSSIP_HEADERS_TIMEOUT_MS: "10000"
+GOSSIP_REQUEST_TIMEOUT_MS: "30000"
+GOSSIP_SHUTDOWN_DEADLINE_MS: "5000"
+GOSSIP_REVIEW_ROUNDS: "0"
+GOSSIP_THREAD_MAX_TELLINGS: "3"
+GOSSIP_THREAD_MAX_AGE_MS: "86400000"
 ```
 
 `PROVIDER_THINKING` (or `GOSSIP_LLM_THINKING`) optionally steers provider thinking/reasoning depth for seed-generation LLM calls. When unset or blank after trim, thinking is off and outgoing request bodies match the pre-thinking defaults. When set to any non-empty string, that value is passed through to the provider (for example `low`, `medium`, `high`, `max`, or tokens your local proxy understands) without validation.
