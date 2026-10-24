@@ -1,62 +1,60 @@
-GOSSIP_BASE_DIR: '.'
+# Operator settings for the gossip companion. Flat keys only; nested values are ignored.
+# Same key names as .env.example, including documented aliases.
+#
+# A scalar whose entire text is os.environ/NAME is read from the process environment
+# after .env has loaded. .env still fills only missing or empty variables.
+# Any other scalar is a literal. Quote booleans, null, and numbers so YAML does not coerce them.
+# A non-empty variable already set in the process environment before either file is read
+# wins over a YAML literal. A YAML literal overrides a value that came only from .env.
+# A reference is never kept as the text os.environ/.... If that variable is missing or empty,
+# the setting stays unset.
+#
+# On startup, keys with no active entry are listed once at the bottom under a comment
+# whose text is exactly "Missing config options". A later start updates that block in place.
+
+GOSSIP_BASE_DIR: "."
 GOSSIP_TYPES_PATH: gossip-types.json
-SUBWAVE_API_URL: ""
-SUBWAVE_API_USER: ""
+SUBWAVE_API_URL: https://your-station.example/api
+SUBWAVE_API_USER: os.environ/SUBWAVE_API_USER
 SUBWAVE_API_PASSWORD: os.environ/SUBWAVE_API_PASSWORD
-# Station API credential. Set this bearer/basic token, or set SUBWAVE_API_USER with SUBWAVE_API_PASSWORD. One of the two forms is required. A token that contains ":" or decodes to "user:password" is sent as Basic auth; otherwise it is sent as Bearer.
 SUBWAVE_API_TOKEN: os.environ/SUBWAVE_API_TOKEN
-# openai | google | anthropic. Aliases: GOSSIP_LLM_PROVIDER.
 PROVIDER: openai
-# Alias: GOSSIP_LLM_API_KEY.
 PROVIDER_KEY: os.environ/PROVIDER_KEY
-# Alias: GOSSIP_LLM_MODEL.
 PROVIDER_MODEL: gpt-4o-mini
-# Optional reasoning/thinking depth (off when unset or blank). Alias: GOSSIP_LLM_THINKING
-# Examples: low, medium, high, max, or proxy-specific tokens
 PROVIDER_THINKING: ""
-OPENAI_BASE_URL: 'https://api.openai.com/v1'
-# Default refresh maximum (integer 1-10); low values may leave the roster incomplete.
-GOSSIP_REFRESH_COUNT: 1
-# Required separate operator secret for POST /refresh and /gossip/refresh.
+OPENAI_BASE_URL: https://api.openai.com/v1
+GOSSIP_REFRESH_COUNT: "1"
 GOSSIP_REFRESH_SECRET: os.environ/GOSSIP_REFRESH_SECRET
-# At most this many refreshes run at once (integer 1-10).
-GOSSIP_REFRESH_MAX_CONCURRENCY: 1
-# Minimum milliseconds between admitted refreshes (integer 0-3600000).
-GOSSIP_REFRESH_MIN_INTERVAL_MS: 60000
-# Maximum JSON request body size for POST /refresh and /gossip/refresh (bytes, 1-1048576).
-GOSSIP_REFRESH_BODY_MAX_BYTES: 16384
-# HTTP deadline to receive request headers (milliseconds, 1000-300000).
-GOSSIP_HEADERS_TIMEOUT_MS: 10000
-# HTTP deadline to receive a complete request, including its body (milliseconds, 1000-300000).
-GOSSIP_REQUEST_TIMEOUT_MS: 30000
+GOSSIP_REFRESH_MAX_CONCURRENCY: "1"
+GOSSIP_REFRESH_MIN_INTERVAL_MS: "60000"
+GOSSIP_REFRESH_BODY_MAX_BYTES: "16384"
+GOSSIP_HEADERS_TIMEOUT_MS: "10000"
+GOSSIP_REQUEST_TIMEOUT_MS: "30000"
 # How long serve drains an admitted refresh or follow-up watch after SIGTERM or SIGINT (integer 0-3600000). Default 5000. 0 skips that wait.
 # The orchestrator stop grace has to be strictly longer than this deadline plus the five-second exclusive state-lock wait.
 # Docker's default grace of 10 seconds is not long enough for the default deadline: set it to at least 15 seconds
 # (docker run --stop-timeout, docker stop --time, Compose stop_grace_period). Unraid uses Docker's stop grace and needs the same setting.
-GOSSIP_SHUTDOWN_DEADLINE_MS: 5000
-GOSSIP_HOST: '0.0.0.0'
-GOSSIP_PORT: 8080
+GOSSIP_SHUTDOWN_DEADLINE_MS: "5000"
+GOSSIP_HOST: "0.0.0.0"
+GOSSIP_PORT: "8080"
 GOSSIP_STATE_PATH: data/gossip-state.json
-GOSSIP_SEED_CAP: 5
-GOSSIP_HISTORY_GENERATIONS: 7
-GOSSIP_REVIEW_ROUNDS: 0
-GOSSIP_THREAD_MAX_TELLINGS: 3
-GOSSIP_THREAD_MAX_AGE_MS: 86400000
-GOSSIP_FEED_BASE_URL: 'http://127.0.0.1:8080'
-GOSSIP_MIN_RUMOR_LENGTH: 20
-GOSSIP_TIMEZONE: America/Los_Angeles
+GOSSIP_SEED_CAP: "5"
+GOSSIP_HISTORY_GENERATIONS: "7"
+GOSSIP_REVIEW_ROUNDS: "0"
+GOSSIP_THREAD_MAX_TELLINGS: "3"
+GOSSIP_THREAD_MAX_AGE_MS: "86400000"
+GOSSIP_FEED_BASE_URL: ""
+GOSSIP_MIN_RUMOR_LENGTH: "20"
+GOSSIP_TIMEZONE: ""
 GOSSIP_LLM_FIXTURE: ""
 GOSSIP_LLM_CALL_LOG: logs/llm-calls.jsonl
-# off | metadata | full. metadata (default) keeps ids and usage and drops prompt and response bodies. full retains them. off skips the call log. An empty GOSSIP_LLM_CALL_LOG also disables it.
 GOSSIP_LLM_LOG_CONTENT: metadata
-# How long serve waits for a Subwave TTS clip after a non-empty RSS response (positive milliseconds). Default 300000.
-GOSSIP_TTS_TIMEOUT_MS: 300000
-# How often that wait polls (milliseconds, at least 250). Default 3000.
-GOSSIP_TTS_POLL_MS: 3000
+GOSSIP_TTS_TIMEOUT_MS: "300000"
+GOSSIP_TTS_POLL_MS: "3000"
 # Active operational log. The next line that would pass GOSSIP_OPERATIONAL_LOG_MAX_BYTES renames it to gossip.<milliseconds>.log.
 GOSSIP_OPERATIONAL_LOG: logs/gossip.log
 # Maximum active operational log size in bytes (integer 1-1073741824). Default 524288 (512 KiB).
-GOSSIP_OPERATIONAL_LOG_MAX_BYTES: 524288
+GOSSIP_OPERATIONAL_LOG_MAX_BYTES: "524288"
 # How long operational log segments are kept, in milliseconds (integer 1-31536000000). Default 604800000 (seven days).
 # Segments older than this are deleted at startup and on each append. Line text is not rewritten.
-GOSSIP_OPERATIONAL_LOG_RETENTION_MS: 604800000
+GOSSIP_OPERATIONAL_LOG_RETENTION_MS: "604800000"

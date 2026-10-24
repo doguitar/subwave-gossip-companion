@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { applyBaseEnv, parseRefreshCount, requireConfig } from './config.js';
+import { applySettings, parseRefreshCount, requireConfig } from './config.js';
 import { ensurePromptWorkspace, warnIfPromptDrift } from './promptWorkspace.js';
 import { GossipStore } from './store.js';
 import { acquireServerOwnership } from './workspaceLock.js';
@@ -21,7 +21,8 @@ function baseDirFromArgs(argv) {
 export function applyCliOptions(argv, env) {
   const baseDir = baseDirFromArgs(argv);
   if (baseDir) env.GOSSIP_BASE_DIR = baseDir;
-  applyBaseEnv(baseDir || env.GOSSIP_BASE_DIR || '.', env);
+  const envDir = baseDir || env.GOSSIP_BASE_DIR || '.';
+  applySettings(path.resolve(envDir), env);
 }
 
 function flagValue(argv, name) {

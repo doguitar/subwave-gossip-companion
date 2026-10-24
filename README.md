@@ -8,33 +8,37 @@ Commands, HTTP routes, environment keys, and privacy are in [docs/reference.md](
 
 Copy `.env.example` to `.env` and set the Subwave credentials and LLM provider. With neither `--base-dir` nor `--base`, the CLI loads `./.env` when `GOSSIP_BASE_DIR` is unset, and `$GOSSIP_BASE_DIR/.env` when that variable is set. Either flag wins over that variable and loads `<base-dir>/.env`. A missing file is ignored; any other read error names the path and stops startup.
 
-`config.yaml` in that same directory is the operator settings file: `./config.yaml` when neither `--base-dir` nor `--base` is set and `GOSSIP_BASE_DIR` is unset, otherwise `<base-dir>/config.yaml`. Both flags win over `GOSSIP_BASE_DIR`. The directory is chosen before the file is read, so a base-directory value inside `config.yaml` does not open a different file. `.env` still loads first and still fills only missing or empty variables. A missing `config.yaml` is not an error. Invalid YAML, a top-level value that is not a mapping, a non-scalar value, or any other read error names the path and stops startup.
+`config.yaml` in that same directory is the operator settings file: `./config.yaml` when neither `--base-dir` nor `--base` is set and `GOSSIP_BASE_DIR` is unset, otherwise `<base-dir>/config.yaml`. `--base-dir` wins over `GOSSIP_BASE_DIR`, and `--base` does the same. The directory is chosen before the file is read, so a base-directory value inside `config.yaml` does not open a different file. `.env` still loads first and still fills only missing or empty variables. A missing `config.yaml` is not an error. Invalid YAML, a top-level value that is not a mapping, a non-scalar value, or any other read error names the path and stops startup.
 
-Each value is a literal, or a reference whose whole text is `os.environ/` plus one variable name. Quotes around that reference still count. A reference inside a longer string, a trailing slash, or an extra segment stays a literal. A non-empty variable already in the process environment wins over a YAML literal and over a reference. Null, a missing variable, and `''` are not that kind of value, so the settings file can replace them. A YAML literal overrides a value that came only from `.env`. A reference reads the named variable after `.env` is applied, including an empty string. If that variable is unset, a value that came from `.env` stays, and a setting that was never set stays unset so the existing required-key checks apply. Quote a scalar whose bare form would not come back as the same string (`true`, `false`, `null`, and `1.0`, which loads as `1`). Integers such as `8080` can stay bare. The commented example is `config.yaml.example`. Do not commit a generated `config.yaml`; it is local, the same way `.env` is. `config.yaml.example` is committed.
+Each value is a literal, or a reference written `os.environ/NAME` (the whole text is `os.environ/` plus one variable name). Quotes around that reference still count. A reference inside a longer string, a trailing slash, or an extra segment stays a literal. A non-empty variable already in the process environment wins over a YAML literal and over a reference. Null, a missing variable, and `''` are not that kind of value, so the settings file can replace them. A YAML literal overrides a value that came only from `.env`. A reference reads the named variable after `.env` is applied, including an empty string. If that variable is unset, a value that came from `.env` stays, and a setting that was never set stays unset so the existing required-key checks apply. Quote a scalar whose bare form would not come back as the same string (`true`, `false`, `null`, and `1.0`, which loads as `1`). Integers such as `8080` can stay bare. The commented example is `config.yaml.example`. Do not commit a generated `config.yaml`; it is local, the same way `.env` is. `config.yaml.example` is committed.
 
 When the file or its directory is writable, startup keeps one `# Missing config options` block listing each known key that has no active entry, with the reader default when there is one. Active entries include null, empty, and references; comments do not. The block is updated in place. Comments and active lines outside it are left byte for byte. A failed write does not stop startup. If the file is missing and the directory is writable, startup creates it containing only that block.
 
-```dotenv
-GOSSIP_BASE_DIR=.
-GOSSIP_TYPES_PATH=gossip-types.json
-SUBWAVE_API_URL=https://your-station.example/api
-SUBWAVE_API_USER=admin
-SUBWAVE_API_PASSWORD=secret
-PROVIDER=openai
-PROVIDER_KEY=...
-PROVIDER_MODEL=gpt-4o-mini
-OPENAI_BASE_URL=https://api.openai.com/v1
-PROVIDER_THINKING=
-GOSSIP_REFRESH_SECRET=use-a-long-random-operator-secret
-GOSSIP_REFRESH_MAX_CONCURRENCY=1
-GOSSIP_REFRESH_MIN_INTERVAL_MS=60000
-GOSSIP_REFRESH_BODY_MAX_BYTES=16384
-GOSSIP_HEADERS_TIMEOUT_MS=10000
-GOSSIP_REQUEST_TIMEOUT_MS=30000
-GOSSIP_SHUTDOWN_DEADLINE_MS=5000
-GOSSIP_REVIEW_ROUNDS=0
-GOSSIP_THREAD_MAX_TELLINGS=3
-GOSSIP_THREAD_MAX_AGE_MS=86400000
+`config.yaml` uses the same key names as `.env`, including documented aliases. Nested values are not settings. Copy `config.yaml.example` to `config.yaml`. A scalar whose entire text is `os.environ/NAME` is read from that process variable after `.env` loads. `.env` still fills only missing or empty variables and does not override a variable that is already set. Any other scalar is a literal. Quote booleans, `null`, and numbers so YAML does not coerce them. A non-empty variable already set in the process environment before either file is read wins over a YAML literal. A YAML literal overrides a value that came only from `.env`. A reference is never kept as the text `os.environ/...`. If that variable is missing or empty, the setting stays unset and the existing required-key checks apply.
+
+When the settings file can be written, keys with no active entry are listed once at the bottom under a comment whose text is exactly `Missing config options`. Each line is commented (`# KEY:` plus the default when the reader has one, otherwise `# KEY:`). A later start updates that block in place and does not add a second header. Comments and active entries above the header are left unchanged. If `config.yaml` is missing and the directory is writable, startup creates it with only that commented section. A failed write is ignored.
+
+Copy `.env.example` to `.env` so `os.environ/` references can resolve, and set the Subwave credentials and LLM provider there or in the process environment.
+
+```yaml
+# See config.yaml.example. Secrets stay os.environ/ references.
+SUBWAVE_API_URL: https://your-station.example/api
+SUBWAVE_API_PASSWORD: os.environ/SUBWAVE_API_PASSWORD
+PROVIDER: openai
+PROVIDER_KEY: os.environ/PROVIDER_KEY
+PROVIDER_MODEL: gpt-4o-mini
+OPENAI_BASE_URL: https://api.openai.com/v1
+PROVIDER_THINKING: ""
+GOSSIP_REFRESH_SECRET: os.environ/GOSSIP_REFRESH_SECRET
+GOSSIP_REFRESH_MAX_CONCURRENCY: "1"
+GOSSIP_REFRESH_MIN_INTERVAL_MS: "60000"
+GOSSIP_REFRESH_BODY_MAX_BYTES: "16384"
+GOSSIP_HEADERS_TIMEOUT_MS: "10000"
+GOSSIP_REQUEST_TIMEOUT_MS: "30000"
+GOSSIP_SHUTDOWN_DEADLINE_MS: "5000"
+GOSSIP_REVIEW_ROUNDS: "0"
+GOSSIP_THREAD_MAX_TELLINGS: "3"
+GOSSIP_THREAD_MAX_AGE_MS: "86400000"
 ```
 
 `PROVIDER_THINKING` (or `GOSSIP_LLM_THINKING`) optionally steers provider thinking/reasoning depth for seed-generation LLM calls. When unset or blank after trim, thinking is off and outgoing request bodies match the pre-thinking defaults. When set to any non-empty string, that value is passed through to the provider (for example `low`, `medium`, `high`, `max`, or tokens your local proxy understands) without validation.

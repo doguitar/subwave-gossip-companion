@@ -8,7 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { refreshCountOption, generateOptions, applyCliOptions } from '../src/cli.js';
 import { acquireMutationLock } from '../src/workspaceLock.js';
-import { applyDotEnv, loadConfig } from '../src/config.js';
+import { applyDotEnv, loadConfig, requireConfig } from '../src/config.js';
 import { fileURLToPath } from 'node:url';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -80,41 +80,46 @@ test('dotenv path follows no flag, GOSSIP_BASE_DIR, then --base-dir', async () =
   const root = await mkdtemp(path.join(tmpdir(), 'dotenv-'));
   const flagged = path.join(root, 'flagged');
   const fromEnv = path.join(root, 'from-env');
-  await writeFile(path.join(flagged, '.env'), 'FROM_DOTENV=flag\n', { flag: 'w' }).catch(async () => {
-    const { mkdir } = await import('node:fs/promises');
-    await mkdir(flagged, { recursive: true });
-    await mkdir(fromEnv, { recursive: true });
-    await writeFile(path.join(flagged, '.env'), 'FROM_DOTENV=flag\n');
-    await writeFile(path.join(fromEnv, '.env'), 'FROM_DOTENV=envdir\n');
-  });
-  const cwdFile = path.join(root, '.env');
-  await writeFile(cwdFile, 'FROM_DOTENV=cwd\n');
+  const cwdOnly = path.join(root, 'cwd');
+  await mkdir(flagged, { recursive: true });
+  await mkdir(fromEnv, { recursive: true });
+  await mkdir(cwdOnly, { recursive: true });
+  await writeFile(path.join(flagged, '.env'), 'FROM_DOTENV=flag\n');
+  await writeFile(path.join(fromEnv, '.env'), 'FROM_DOTENV=envdir\n');
+  await writeFile(path.join(flagged, 'config.yaml'), 'GOSSIP_FEED_BASE_URL: from-flag-yaml\n');
+  await writeFile(path.join(fromEnv, 'config.yaml'), 'GOSSIP_FEED_BASE_URL: from-env-yaml\n');
+  await writeFile(path.join(root, '.env'), 'FROM_DOTENV=cwd\n');
 
-  const previousCwd = process.cwd();
-  const empty = path.join(root, 'empty-cwd');
-  await mkdir(empty);
-  const noFlag = {};
+  const previous = process.cwd();
   try {
-    process.chdir(empty);
+    process.chdir(cwdOnly);
+    const noFlag = {};
     applyCliOptions(['serve'], noFlag);
+    assert.equal(noFlag.FROM_DOTENV, undefined);
+    assert.equal(noFlag.GOSSIP_FEED_BASE_URL, undefined);
+    assert.match(await readFile(path.join(cwdOnly, 'config.yaml'), 'utf8'), /^# Missing config options$/m);
   } finally {
-    process.chdir(previousCwd);
+    process.chdir(previous);
   }
-  // no base dir: loader targets ./.env from the process cwd, which is not this fixture
-  assert.equal(noFlag.FROM_DOTENV, undefined);
 
   const envDir = { GOSSIP_BASE_DIR: fromEnv };
   applyCliOptions(['serve'], envDir);
   assert.equal(envDir.FROM_DOTENV, 'envdir');
+  assert.equal(envDir.GOSSIP_FEED_BASE_URL, 'from-env-yaml');
 
   const flaggedEnv = { GOSSIP_BASE_DIR: fromEnv };
   applyCliOptions(['serve', '--base-dir', flagged], flaggedEnv);
   assert.equal(flaggedEnv.GOSSIP_BASE_DIR, flagged);
   assert.equal(flaggedEnv.FROM_DOTENV, 'flag');
+  assert.equal(flaggedEnv.GOSSIP_FEED_BASE_URL, 'from-flag-yaml');
 
   const skipped = applyDotEnv(undefined, {});
   assert.equal(skipped.FROM_DOTENV, undefined);
   assert.throws(() => applyDotEnv(root, {}), /Cannot read env file/);
+
+  const blocked = path.join(root, 'blocked');
+  await mkdir(path.join(blocked, '.env'), { recursive: true });
+  assert.throws(() => applyCliOptions(['serve', '--base-dir', blocked], {}), /Cannot read env file/);
 });
 
 test('CLI process loads --base-dir .env before config failure', async () => {
@@ -127,8 +132,159 @@ test('CLI process loads --base-dir .env before config failure', async () => {
   });
   const output = `${result.stdout}\n${result.stderr}`;
   assert.equal(result.status === 0, false);
-  assert.doesNotMatch(output, /Cannot read env file|The "path" argument/);
+  assert.doesNotMatch(output, /Cannot read env file|Cannot read settings file|The "path" argument/);
   assert.match(output, /Invalid configuration|SUBWAVE_API_URL|PROVIDER/);
+  assert.match(await readFile(path.join(root, 'config.yaml'), 'utf8'), /# Missing config options/);
+});
+
+test('YAML literals, references, and aliases follow settings precedence', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'yaml-settings-'));
+  await writeFile(path.join(dir, '.env'), [
+    'GOSSIP_HOST=from-dotenv',
+    'GOSSIP_SEED_CAP=9',
+    'GOSSIP_MIN_RUMOR_LENGTH=33',
+    'GOSSIP_HISTORY_GENERATIONS=6',
+    'PROVIDER_KEY=from-dotenv-key',
+    'GOSSIP_REFRESH_SECRET=from-dotenv-secret',
+    'OTHER_HOST=from-dotenv-host',
+  ].join('\n'));
+  await writeFile(path.join(dir, 'config.yaml'), [
+    'GOSSIP_HOST: from-yaml',
+    'SUBWAVE_API_USER: os.environ/GOSSIP_HOST',
+    'GOSSIP_PORT: 8081',
+    'GOSSIP_REVIEW_ROUNDS: 0',
+    'GOSSIP_MIN_RUMOR_LENGTH: 40',
+    'PROVIDER_THINKING: true',
+    'GOSSIP_LLM_PROVIDER: google',
+    'PROVIDER_KEY: os.environ/PROVIDER_KEY',
+    'GOSSIP_REFRESH_SECRET: os.environ/ABSENT_SECRET',
+    'SUBWAVE_API_URL: os.environ/EMPTY_URL',
+    'OPENAI_BASE_URL: os.environ/OTHER_HOST',
+    'nested:',
+    '  GOSSIP_THREAD_MAX_TELLINGS: 9',
+    'GOSSIP_TTS_POLL_MS:',
+    '  ignored: 1',
+    'NOT_A_SETTING: 1',
+  ].join('\n'));
+  const env = {
+    GOSSIP_BASE_DIR: dir,
+    GOSSIP_SEED_CAP: '4',
+    GOSSIP_MIN_RUMOR_LENGTH: '21',
+    GOSSIP_HISTORY_GENERATIONS: '',
+    EMPTY_URL: '',
+    GOSSIP_TYPES_PATH: path.join(repo, 'gossip-types.json'),
+  };
+  applyCliOptions(['serve', '--base-dir', dir], env);
+  assert.equal(env.GOSSIP_SEED_CAP, '4');
+  assert.equal(env.GOSSIP_MIN_RUMOR_LENGTH, '21');
+  assert.equal(env.GOSSIP_HISTORY_GENERATIONS, '6');
+  assert.equal(env.GOSSIP_HOST, 'from-yaml');
+  assert.equal(env.SUBWAVE_API_USER, 'from-dotenv');
+  assert.equal(env.GOSSIP_PORT, '8081');
+  assert.equal(env.GOSSIP_REVIEW_ROUNDS, '0');
+  assert.equal(env.PROVIDER_THINKING, 'true');
+  assert.equal(env.PROVIDER_KEY, 'from-dotenv-key');
+  assert.equal(env.GOSSIP_REFRESH_SECRET, undefined);
+  assert.equal(env.SUBWAVE_API_URL, undefined);
+  assert.equal(env.OPENAI_BASE_URL, 'from-dotenv-host');
+  assert.equal(env.GOSSIP_THREAD_MAX_TELLINGS, undefined);
+  assert.equal(env.GOSSIP_TTS_POLL_MS, undefined);
+  assert.equal(env.NOT_A_SETTING, undefined);
+  assert.equal(env.nested, undefined);
+  const loaded = loadConfig(env);
+  assert.equal(loaded.config.llmProvider, 'google');
+  assert.equal(loaded.config.port, 8081);
+  assert.equal(loaded.config.reviewRounds, 0);
+  assert.equal(loaded.config.llmThinkingLevel, 'true');
+  assert.ok(loaded.errors.includes('GOSSIP_REFRESH_SECRET is required'));
+  assert.ok(loaded.errors.includes('SUBWAVE_API_URL is required'));
+  assert.equal(loaded.errors.some((error) => error.includes('os.environ')), false);
+  assert.throws(() => requireConfig(env), (err) => {
+    assert.match(err.message, /GOSSIP_REFRESH_SECRET is required/);
+    assert.doesNotMatch(err.message, /os\.environ/);
+    return true;
+  });
+});
+
+test('missing settings block is created once and updated in place', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'yaml-missing-'));
+  const file = path.join(dir, 'config.yaml');
+  const note = '# keep this note\nSUBWAVE_API_URL: "https://station.example/api"\nGOSSIP_TTS_POLL_MS:\n  ignored: 1\n';
+  await writeFile(file, note);
+  const opened = { GOSSIP_BASE_DIR: dir };
+  applyCliOptions(['serve', '--base-dir', dir], opened);
+  assert.equal(opened.GOSSIP_TTS_POLL_MS, undefined);
+  const first = await readFile(file, 'utf8');
+  assert.ok(first.startsWith(note));
+  assert.equal(first.match(/# Missing config options/g).length, 1);
+  assert.match(first, /^# GOSSIP_PORT: 8080$/m);
+  assert.match(first, /^# GOSSIP_REFRESH_SECRET:$/m);
+  assert.match(first, /^# PROVIDER_MODEL: gpt-4o-mini$/m);
+  assert.doesNotMatch(first, /^# SUBWAVE_API_URL:/m);
+  assert.match(first, /^# GOSSIP_TTS_POLL_MS: 3000$/m);
+  applyCliOptions(['serve', '--base-dir', dir], { GOSSIP_BASE_DIR: dir });
+  assert.equal(await readFile(file, 'utf8'), first);
+
+  await writeFile(file, first.replace('# Missing config options', 'GOSSIP_HOST: "127.0.0.1"\n# Missing config options'));
+  const env = { GOSSIP_BASE_DIR: dir };
+  applyCliOptions(['serve', '--base-dir', dir], env);
+  const next = await readFile(file, 'utf8');
+  assert.ok(next.startsWith(note));
+  assert.equal(next.match(/# Missing config options/g).length, 1);
+  assert.match(next, /^GOSSIP_HOST: "127\.0\.0\.1"$/m);
+  assert.doesNotMatch(next, /^# GOSSIP_HOST:/m);
+  assert.equal(env.GOSSIP_HOST, '127.0.0.1');
+  assert.equal(env.GOSSIP_PORT, undefined);
+});
+
+test('settings read errors name the path and unwritable files are left in place', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'yaml-read-'));
+  const broken = path.join(root, 'broken');
+  await mkdir(broken, { recursive: true });
+  await mkdir(path.join(broken, 'config.yaml'));
+  assert.throws(() => applyCliOptions(['serve', '--base-dir', broken], {}), (err) => {
+    assert.match(err.message, /Cannot read settings file/);
+    assert.ok(err.message.includes(path.join(broken, 'config.yaml')));
+    return true;
+  });
+
+  const readonlyFile = path.join(root, 'file');
+  await mkdir(readonlyFile, { recursive: true });
+  const yaml = path.join(readonlyFile, 'config.yaml');
+  const body = '# keep this note\nGOSSIP_PORT: 8081\n';
+  await writeFile(yaml, body);
+  await chmod(yaml, 0o444);
+  try {
+    const env = { GOSSIP_BASE_DIR: readonlyFile };
+    applyCliOptions(['serve', '--base-dir', readonlyFile], env);
+    assert.equal(env.GOSSIP_PORT, '8081');
+    assert.equal(await readFile(yaml, 'utf8'), body);
+  } finally {
+    await chmod(yaml, 0o644);
+  }
+
+  const readonlyDir = path.join(root, 'dir');
+  await mkdir(readonlyDir, { recursive: true });
+  const locked = path.join(readonlyDir, 'config.yaml');
+  if (process.platform === 'win32') {
+    const user = process.env.USERNAME;
+    const deny = spawnSync('icacls', [readonlyDir, '/deny', `${user}:(W,M)`], { encoding: 'utf8' });
+    assert.equal(deny.status, 0, deny.stderr);
+    try {
+      applyCliOptions(['serve', '--base-dir', readonlyDir], {});
+      await assert.rejects(readFile(locked, 'utf8'));
+    } finally {
+      spawnSync('icacls', [readonlyDir, '/remove:d', user], { encoding: 'utf8' });
+    }
+  } else {
+    await chmod(readonlyDir, 0o555);
+    try {
+      applyCliOptions(['serve', '--base-dir', readonlyDir], {});
+      await assert.rejects(readFile(locked, 'utf8'));
+    } finally {
+      await chmod(readonlyDir, 0o755);
+    }
+  }
 });
 
 async function spawnWithCorruptState(command) {
@@ -840,200 +996,6 @@ test('settings file uses the base directory chosen before either file is read', 
   applyCliOptions(['serve', '--base', flagged], baseFlag);
   assert.equal(baseFlag.GOSSIP_BASE_DIR, flagged);
   assert.equal(baseFlag.GOSSIP_PORT, '7004');
-});
-
-test('settings literals and references follow env precedence', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'settings-values-'));
-  await writeFile(path.join(root, '.env'), [
-    'GOSSIP_PORT=1111',
-    'GOSSIP_HOST=from-dotenv',
-    'GOSSIP_SEED_CAP=4',
-    'BLANK=',
-    'SEED=9',
-    'SUBWAVE_API_URL=http://from-dotenv',
-  ].join('\n'));
-  await writeFile(path.join(root, 'config.yaml'), [
-    'GOSSIP_PORT: 2222',
-    'GOSSIP_HOST: os.environ/MISSING',
-    'GOSSIP_TIMEZONE: os.environ/BLANK',
-    'GOSSIP_SEED_CAP: "os.environ/SEED"',
-    'GOSSIP_REVIEW_ROUNDS: os.environ/SEED/extra',
-    'SUBWAVE_API_USER: "prefix os.environ/SEED"',
-    'SUBWAVE_API_TOKEN: os.environ/',
-    'SUBWAVE_API_URL: os.environ/NO_SUCH_URL',
-    'GOSSIP_FEED_BASE_URL: os.environ/NO_SUCH_FEED',
-    'NOT_A_SETTING: hello',
-  ].join('\n'));
-
-  const env = { GOSSIP_REFRESH_SECRET: 'explicit-secret' };
-  applyCliOptions(['serve', '--base-dir', root], env);
-  assert.equal(env.GOSSIP_PORT, '2222');
-  assert.equal(env.GOSSIP_HOST, 'from-dotenv');
-  assert.equal(env.GOSSIP_TIMEZONE, '');
-  assert.equal(env.GOSSIP_SEED_CAP, '9');
-  assert.equal(env.GOSSIP_REVIEW_ROUNDS, 'os.environ/SEED/extra');
-  assert.equal(env.SUBWAVE_API_USER, 'prefix os.environ/SEED');
-  assert.equal(env.SUBWAVE_API_TOKEN, 'os.environ/');
-  assert.equal(env.SUBWAVE_API_URL, 'http://from-dotenv');
-  assert.equal(env.GOSSIP_FEED_BASE_URL, undefined);
-  assert.equal(env.NOT_A_SETTING, undefined);
-  assert.equal(env.GOSSIP_REFRESH_SECRET, 'explicit-secret');
-
-  const explicit = { GOSSIP_PORT: '3333', GOSSIP_HOST: 'explicit' };
-  applyCliOptions(['serve', '--base-dir', root], explicit);
-  assert.equal(explicit.GOSSIP_PORT, '3333');
-  assert.equal(explicit.GOSSIP_HOST, 'explicit');
-
-  const blank = { GOSSIP_PORT: '' };
-  applyCliOptions(['serve', '--base-dir', root], blank);
-  assert.equal(blank.GOSSIP_PORT, '2222');
-
-  const { errors } = loadConfig(env);
-  assert.equal(errors.includes('SUBWAVE_API_URL is required'), false);
-  await writeFile(path.join(root, '.env'), '');
-  const missing = {};
-  await writeFile(path.join(root, 'config.yaml'), 'SUBWAVE_API_URL: os.environ/NO_SUCH_URL\n');
-  applyCliOptions(['serve', '--base-dir', root], missing);
-  assert.equal(missing.SUBWAVE_API_URL, undefined);
-  const required = loadConfig(missing);
-  assert.ok(required.errors.includes('SUBWAVE_API_URL is required'));
-  assert.equal(required.errors.some((error) => error.includes('os.environ')), false);
-
-  const alias = {};
-  await writeFile(path.join(root, 'config.yaml'), 'GOSSIP_PORT: 9\nGOSSIP_LLM_PROVIDER: google\n');
-  applyCliOptions(['serve', '--base-dir', root], alias);
-  assert.equal(alias.GOSSIP_PORT, '9');
-  assert.equal(loadConfig(alias).config.llmProvider, 'google');
-  assert.equal(loadConfig({ GOSSIP_BASE_DIR: root, GOSSIP_REFRESH_SECRET: 'x' }).config.port, 8080);
-});
-
-test('settings scalars stringify and non-scalars do not become settings', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'settings-scalars-'));
-  const file = path.join(root, 'config.yaml');
-  await writeFile(file, [
-    'GOSSIP_PORT: 8080',
-    'GOSSIP_REVIEW_ROUNDS: 1.0',
-    'GOSSIP_HOST: on',
-    'GOSSIP_TIMEZONE: yes',
-    'SUBWAVE_API_USER: no',
-    'SUBWAVE_API_TOKEN: off',
-    'GOSSIP_FEED_BASE_URL: true',
-    'PROVIDER_THINKING: false',
-    'GOSSIP_LLM_FIXTURE: null',
-    'PROVIDER_MODEL: ""',
-    'NOT_A_SETTING: 1',
-  ].join('\n'));
-  const env = {};
-  applyCliOptions(['serve', '--base-dir', root], env);
-  assert.equal(env.GOSSIP_PORT, '8080');
-  assert.equal(env.GOSSIP_REVIEW_ROUNDS, '1');
-  assert.equal(env.GOSSIP_HOST, 'on');
-  assert.equal(env.GOSSIP_TIMEZONE, 'yes');
-  assert.equal(env.SUBWAVE_API_USER, 'no');
-  assert.equal(env.SUBWAVE_API_TOKEN, 'off');
-  assert.equal(env.GOSSIP_FEED_BASE_URL, 'true');
-  assert.equal(env.PROVIDER_THINKING, 'false');
-  assert.equal(env.GOSSIP_LLM_FIXTURE, '');
-  assert.equal(env.PROVIDER_MODEL, '');
-  assert.equal(env.NOT_A_SETTING, undefined);
-
-  const nested = 'GOSSIP_PORT: 9\nGOSSIP_HOST:\n  nested: 1\n';
-  await writeFile(file, nested);
-  const blocked = {};
-  assert.throws(() => applyCliOptions(['serve', '--base-dir', root], blocked), (err) => {
-    assert.match(err.message, /Cannot read settings file/);
-    assert.ok(err.message.includes(file));
-    return true;
-  });
-  assert.equal(blocked.GOSSIP_PORT, undefined);
-  assert.equal(await readFile(file, 'utf8'), nested);
-});
-
-test('missing settings file loads and other read failures name the file', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'settings-read-'));
-  const file = path.join(root, 'config.yaml');
-  const env = { GOSSIP_HOST: 'from-process' };
-  applyCliOptions(['serve', '--base-dir', root], env);
-  assert.equal(env.GOSSIP_HOST, 'from-process');
-  assert.equal(await readFile(file, 'utf8'), missingSettingsBlock());
-
-  for (const bad of ['[', 'hello\n', '- 1\n', 'GOSSIP_HOST: [\n']) {
-    await writeFile(file, bad);
-    assert.throws(() => applyCliOptions(['serve', '--base-dir', root], {}), (err) => {
-      assert.match(err.message, /Cannot read settings file/);
-      assert.ok(err.message.includes(file));
-      return true;
-    });
-    assert.equal(await readFile(file, 'utf8'), bad);
-  }
-
-  await writeFile(file, '');
-  applyCliOptions(['serve', '--base-dir', root], {});
-  assert.equal(await readFile(file, 'utf8'), `\n${missingSettingsBlock()}`);
-
-  await writeFile(file, '{}\n');
-  applyCliOptions(['serve', '--base-dir', root], {});
-  assert.equal(await readFile(file, 'utf8'), `{}\n${missingSettingsBlock()}`);
-
-  await mkdir(path.join(root, 'blocked'));
-  const asDir = path.join(root, 'blocked', 'config.yaml');
-  await mkdir(asDir);
-  assert.throws(() => applyCliOptions(['serve', '--base-dir', path.join(root, 'blocked')], {}), /Cannot read settings file/);
-});
-
-test('missing config options block is created once and updated in place', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'settings-block-'));
-  const file = path.join(root, 'config.yaml');
-  const raw = '# note\r\nGOSSIP_HOST: radio\r\n# Missing config options\r\n# GOSSIP_PORT: 1\r\n# after\r\nnote: still here';
-  await writeFile(file, raw);
-  applyCliOptions(['serve', '--base-dir', root], {});
-  const once = await readFile(file, 'utf8');
-  assert.equal(once.startsWith('# note\r\nGOSSIP_HOST: radio\r\n'), true);
-  assert.equal(once.endsWith('# after\r\nnote: still here'), true);
-  assert.equal(once.split('# Missing config options').length, 2);
-  assert.match(once, /# GOSSIP_PORT: 8080\r\n/);
-  assert.doesNotMatch(once, /# GOSSIP_HOST:/);
-  assert.doesNotMatch(once, /127\.0\.0\.1/);
-  assert.match(once, /# GOSSIP_LLM_PROVIDER:\r\n/);
-  applyCliOptions(['serve', '--base-dir', root], {});
-  assert.equal(await readFile(file, 'utf8'), once);
-
-  const withPort = `GOSSIP_PORT: 7\r\n${once}`;
-  await writeFile(file, withPort);
-  applyCliOptions(['serve', '--base-dir', root], {});
-  const twice = await readFile(file, 'utf8');
-  assert.equal(twice.startsWith('GOSSIP_PORT: 7\r\n# note\r\nGOSSIP_HOST: radio\r\n'), true);
-  assert.equal(twice.endsWith('# after\r\nnote: still here'), true);
-  assert.equal(twice.split('# Missing config options').length, 2);
-  assert.equal(twice.includes('# GOSSIP_PORT:'), false);
-
-  await writeFile(file, 'SUBWAVE_API_URL:\nSUBWAVE_API_USER: ""\nSUBWAVE_API_TOKEN: os.environ/NOPE\n# SUBWAVE_API_PASSWORD: secret\n');
-  const active = {};
-  applyCliOptions(['serve', '--base-dir', root], active);
-  const listed = await readFile(file, 'utf8');
-  assert.equal(active.SUBWAVE_API_URL, '');
-  assert.equal(active.SUBWAVE_API_USER, '');
-  assert.equal(active.SUBWAVE_API_TOKEN, undefined);
-  assert.equal(active.SUBWAVE_API_PASSWORD, undefined);
-  assert.match(listed, /# SUBWAVE_API_PASSWORD:\n/);
-  assert.doesNotMatch(listed, /# SUBWAVE_API_URL:/);
-  assert.doesNotMatch(listed, /# SUBWAVE_API_USER:/);
-  assert.doesNotMatch(listed, /# SUBWAVE_API_TOKEN:/);
-  assert.match(listed, /# SUBWAVE_API_PASSWORD: secret\n/);
-
-  await writeFile(file, 'PROVIDER: google\n');
-  applyCliOptions(['serve', '--base-dir', root], {});
-  const google = await readFile(file, 'utf8');
-  assert.match(google, /# PROVIDER_MODEL: 'gemini-2.0-flash'\n/);
-  assert.doesNotMatch(google, /# PROVIDER:/);
-  await writeFile(file, 'PROVIDER: anthropic\n');
-  applyCliOptions(['serve', '--base-dir', root], {});
-  assert.match(await readFile(file, 'utf8'), /# PROVIDER_MODEL: 'claude-sonnet-4-5'\n/);
-
-  const bare = 'GOSSIP_HOST: radio';
-  await writeFile(file, bare);
-  applyCliOptions(['serve', '--base-dir', root], {});
-  assert.equal(await readFile(file, 'utf8'), `${bare}\n${missingSettingsBlock().split('\n').filter((line) => line !== "# GOSSIP_HOST: '0.0.0.0'").join('\n')}`);
 });
 
 test('an unwritable settings file or directory still loads', async () => {
