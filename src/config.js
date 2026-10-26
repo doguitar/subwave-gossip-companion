@@ -56,11 +56,11 @@ export function loadConfig(env = process.env) {
   };
   const apiUrl = (env.SUBWAVE_API_URL || '').trim().replace(/\/+$/, '');
   const apiUser = (env.SUBWAVE_API_USER || '').trim();
-  const apiPassword = (env.SUBWAVE_API_PASSWORD || env.SUBWAVE_API_TOKEN || '').trim();
+  const apiPassword = (env.SUBWAVE_API_PASSWORD || '').trim();
   const apiToken = (env.SUBWAVE_API_TOKEN || '').trim();
   if (!apiUrl) errors.push('SUBWAVE_API_URL is required');
-  if (!apiUser && !apiToken) errors.push('SUBWAVE_API_USER or SUBWAVE_API_TOKEN is required');
-  if (apiUser && !apiPassword) errors.push('SUBWAVE_API_PASSWORD is required when SUBWAVE_API_USER is set');
+  if (!apiToken && !(apiUser && apiPassword)) errors.push('SUBWAVE_API_TOKEN is required');
+  if (apiUser && !apiPassword && !apiToken) errors.push('SUBWAVE_API_PASSWORD is required when SUBWAVE_API_USER is set');
 
   const portRaw = env.GOSSIP_PORT ?? String(DEFAULT_PORT);
   const port = Number(portRaw);
@@ -315,26 +315,30 @@ export function applyDotEnv(filePath = path.resolve('.env'), env = process.env) 
 const MISSING_HEADER = '# Missing config options';
 const ENV_REFERENCE = /^os\.environ\/([A-Za-z_][A-Za-z0-9_]*)$/;
 // shortcut: copied from loadConfig, update both when a reader default changes.
+// Aliases stay readable so an existing file or env value still applies.
+// They are not canonical settings, so the missing-options comment block does not list them.
+const SETTING_ALIASES = [
+  'SUBWAVE_API_USER',
+  'SUBWAVE_API_PASSWORD',
+  'GOSSIP_LLM_PROVIDER',
+  'GOSSIP_LLM_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'GOOGLE_API_KEY',
+  'GOSSIP_LLM_MODEL',
+  'GOSSIP_LLM_THINKING',
+  'GOSSIP_LLM_URL',
+];
 const SETTINGS = [
   ['GOSSIP_BASE_DIR', '.'],
   ['GOSSIP_TYPES_PATH', 'gossip-types.json'],
   ['SUBWAVE_API_URL', null],
-  ['SUBWAVE_API_USER', null],
-  ['SUBWAVE_API_PASSWORD', null],
   ['SUBWAVE_API_TOKEN', null],
   ['PROVIDER', 'openai'],
-  ['GOSSIP_LLM_PROVIDER', 'openai'],
   ['PROVIDER_KEY', null],
-  ['GOSSIP_LLM_API_KEY', null],
-  ['OPENAI_API_KEY', null],
-  ['ANTHROPIC_API_KEY', null],
-  ['GOOGLE_API_KEY', null],
   ['PROVIDER_MODEL', DEFAULT_MODELS.openai],
-  ['GOSSIP_LLM_MODEL', DEFAULT_MODELS.openai],
   ['PROVIDER_THINKING', null],
-  ['GOSSIP_LLM_THINKING', null],
   ['OPENAI_BASE_URL', DEFAULT_OPENAI_BASE_URL],
-  ['GOSSIP_LLM_URL', DEFAULT_OPENAI_BASE_URL],
   ['GOSSIP_REFRESH_COUNT', '1'],
   ['GOSSIP_REFRESH_SECRET', null],
   ['GOSSIP_REFRESH_MAX_CONCURRENCY', String(DEFAULT_REFRESH_MAX_CONCURRENCY)],
@@ -363,7 +367,7 @@ const SETTINGS = [
   ['GOSSIP_OPERATIONAL_LOG_MAX_BYTES', String(OPERATIONAL_LOG_MAX_BYTES)],
   ['GOSSIP_OPERATIONAL_LOG_RETENTION_MS', String(OPERATIONAL_LOG_RETENTION_MS)],
 ];
-const SETTING_KEYS = new Set(SETTINGS.map(([key]) => key));
+const SETTING_KEYS = new Set([...SETTINGS.map(([key]) => key), ...SETTING_ALIASES]);
 
 export function applySettings(dir, env = process.env) {
   const preset = new Set(Object.keys(env).filter((key) => env[key] != null && env[key] !== ''));

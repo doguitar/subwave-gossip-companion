@@ -12,7 +12,7 @@ Copy `.env.example` to `.env` and set the Subwave credentials and LLM provider. 
 
 Each value is a literal, or a reference written `os.environ/NAME` (the whole text is `os.environ/` plus one variable name). Quotes around that reference still count. A reference inside a longer string, a trailing slash, or an extra segment stays a literal. A non-empty variable already in the process environment wins over a YAML literal and over a reference. Null, a missing variable, and `''` are not that kind of value, so the settings file can replace them. A YAML literal overrides a value that came only from `.env`. A reference reads the named variable after `.env` is applied, including an empty string. If that variable is unset, a value that came from `.env` stays, and a setting that was never set stays unset so the existing required-key checks apply. Quote a scalar whose bare form would not come back as the same string (`true`, `false`, `null`, and `1.0`, which loads as `1`). Integers such as `8080` can stay bare. The commented example is `config.yaml.example`. Do not commit a generated `config.yaml`; it is local, the same way `.env` is. `config.yaml.example` is committed.
 
-When the file or its directory is writable, startup keeps one `# Missing config options` block listing each known key that has no active entry, with the reader default when there is one. Active entries include null, empty, and references; comments do not. The block is updated in place. Comments and active lines outside it are left byte for byte. A failed write does not stop startup. If the file is missing and the directory is writable, startup creates it containing only that block.
+When the file or its directory is writable, startup keeps one `# Missing config options` block listing each canonical key that has no active entry, with the reader default when there is one. Documented alias names are still read when an entry is present, and they are not written into that block. Active entries include null, empty, and references; comments do not. The block is updated in place. Comments and active lines outside it are left byte for byte. A failed write does not stop startup. If the file is missing and the directory is writable, startup creates it containing only that block.
 
 `config.yaml` uses the same key names as `.env`, including documented aliases. Nested values are not settings. Copy `config.yaml.example` to `config.yaml`. A scalar whose entire text is `os.environ/NAME` is read from that process variable after `.env` loads. `.env` still fills only missing or empty variables and does not override a variable that is already set. Any other scalar is a literal. Quote booleans, `null`, and numbers so YAML does not coerce them. A non-empty variable already set in the process environment before either file is read wins over a YAML literal. A YAML literal overrides a value that came only from `.env`. A reference is never kept as the text `os.environ/...`. If that variable is missing or empty, the setting stays unset and the existing required-key checks apply.
 
@@ -23,7 +23,7 @@ Copy `.env.example` to `.env` so `os.environ/` references can resolve, and set t
 ```yaml
 # See config.yaml.example. Secrets stay os.environ/ references.
 SUBWAVE_API_URL: https://your-station.example/api
-SUBWAVE_API_PASSWORD: os.environ/SUBWAVE_API_PASSWORD
+SUBWAVE_API_TOKEN: os.environ/SUBWAVE_API_TOKEN
 PROVIDER: openai
 PROVIDER_KEY: os.environ/PROVIDER_KEY
 PROVIDER_MODEL: gpt-4o-mini

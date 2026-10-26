@@ -42,9 +42,7 @@ The process binds `GOSSIP_HOST` (default `0.0.0.0`) and `GOSSIP_PORT` (default `
 | `GOSSIP_BASE_DIR` | `.` | directory |
 | `GOSSIP_TYPES_PATH` | `gossip-types.json` | file under the base directory |
 | `SUBWAVE_API_URL` | empty | station API origin |
-| `SUBWAVE_API_USER` | empty | with `SUBWAVE_API_PASSWORD`, sent as Basic |
-| `SUBWAVE_API_PASSWORD` | empty | Basic password; `SUBWAVE_API_TOKEN` fills this when the password is unset |
-| `SUBWAVE_API_TOKEN` | empty | Required when user is unset. A token containing `:` or decoding to `user:password` is Basic; otherwise Bearer |
+| `SUBWAVE_API_TOKEN` | required | HTTP Basic credential: base64 of `user:password`, or the raw `user:password` pair. Sent as `Authorization: Basic` |
 | `PROVIDER` | `openai` | `openai`, `google`, `anthropic`. Alias `GOSSIP_LLM_PROVIDER` |
 | `PROVIDER_KEY` | empty | Alias `GOSSIP_LLM_API_KEY`, then `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` |
 | `PROVIDER_MODEL` | `gpt-4o-mini`, `gemini-2.0-flash`, or `claude-sonnet-4-5` by provider | Alias `GOSSIP_LLM_MODEL` |

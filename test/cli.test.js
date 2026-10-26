@@ -220,6 +220,8 @@ test('missing settings block is created once and updated in place', async () => 
   assert.match(first, /^# GOSSIP_PORT: 8080$/m);
   assert.match(first, /^# GOSSIP_REFRESH_SECRET:$/m);
   assert.match(first, /^# PROVIDER_MODEL: gpt-4o-mini$/m);
+  assert.doesNotMatch(first, /^# (?:GOSSIP_LLM_PROVIDER|GOSSIP_LLM_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY|GOSSIP_LLM_MODEL|GOSSIP_LLM_THINKING|GOSSIP_LLM_URL):/m);
+  assert.doesNotMatch(first, /^# SUBWAVE_API_(?:USER|PASSWORD):/m);
   assert.doesNotMatch(first, /^# SUBWAVE_API_URL:/m);
   assert.match(first, /^# GOSSIP_TTS_POLL_MS: 3000$/m);
   applyCliOptions(['serve', '--base-dir', dir], { GOSSIP_BASE_DIR: dir });
@@ -904,8 +906,6 @@ function missingSettingsBlock(model = 'gpt-4o-mini') {
   const rows = [
     ['GOSSIP_BASE_DIR', '.'],
     ['SUBWAVE_API_URL', null],
-    ['SUBWAVE_API_USER', null],
-    ['SUBWAVE_API_PASSWORD', null],
     ['SUBWAVE_API_TOKEN', null],
     ['GOSSIP_PORT', 8080],
     ['GOSSIP_SEED_CAP', 5],
@@ -925,18 +925,10 @@ function missingSettingsBlock(model = 'gpt-4o-mini') {
     ['GOSSIP_FEED_BASE_URL', null],
     ['GOSSIP_TIMEZONE', null],
     ['PROVIDER', 'openai'],
-    ['GOSSIP_LLM_PROVIDER', null],
     ['PROVIDER_KEY', null],
-    ['GOSSIP_LLM_API_KEY', null],
-    ['OPENAI_API_KEY', null],
-    ['ANTHROPIC_API_KEY', null],
-    ['GOOGLE_API_KEY', null],
     ['PROVIDER_MODEL', model],
-    ['GOSSIP_LLM_MODEL', null],
     ['PROVIDER_THINKING', null],
-    ['GOSSIP_LLM_THINKING', null],
     ['OPENAI_BASE_URL', 'https://api.openai.com/v1'],
-    ['GOSSIP_LLM_URL', null],
     ['GOSSIP_LLM_FIXTURE', null],
     ['GOSSIP_LLM_CALL_LOG', path.join('logs', 'llm-calls.jsonl')],
     ['GOSSIP_LLM_LOG_CONTENT', 'metadata'],

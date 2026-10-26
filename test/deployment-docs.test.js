@@ -269,9 +269,10 @@ test('operator instructions describe config.yaml and ignore the generated file',
   assert.match(readme, /--base` is set|--base` nor `--base`/);
   assert.match(reference, /config\.yaml/);
   assert.match(reference, /config\.yaml\.example/);
-  for (const key of ['SUBWAVE_API_PASSWORD', 'SUBWAVE_API_TOKEN', 'GOSSIP_REFRESH_SECRET', 'PROVIDER_KEY']) {
+  for (const key of ['SUBWAVE_API_TOKEN', 'GOSSIP_REFRESH_SECRET', 'PROVIDER_KEY']) {
     assert.match(example, new RegExp(`${key}: os\\.environ\\/${key}`));
   }
+  assert.doesNotMatch(example, /^SUBWAVE_API_(?:USER|PASSWORD):/m);
   assert.match(ignore, /^config\.yaml$/m);
   assert.doesNotMatch(ignore, /config\.yaml\.example/);
   assert.match(agents, /Do not commit `\.env`/);
@@ -291,7 +292,7 @@ test('operator README documents YAML settings and the example keeps secrets as e
   assert.match(readme, /any other read error names the path/);
   assert.match(readme, /wins over a YAML literal/);
   assert.match(readme, /overrides a value that came only from `\.env`/);
-  assert.match(example, /^SUBWAVE_API_PASSWORD: os\.environ\/SUBWAVE_API_PASSWORD$/m);
+  assert.doesNotMatch(example, /^SUBWAVE_API_(?:USER|PASSWORD):/m);
   assert.match(example, /^SUBWAVE_API_TOKEN: os\.environ\/SUBWAVE_API_TOKEN$/m);
   assert.match(example, /^PROVIDER_KEY: os\.environ\/PROVIDER_KEY$/m);
   assert.match(example, /^GOSSIP_REFRESH_SECRET: os\.environ\/GOSSIP_REFRESH_SECRET$/m);
