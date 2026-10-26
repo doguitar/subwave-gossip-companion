@@ -58,8 +58,11 @@ test('getShowPersonas uses 503 when schedule error has no HTTP status', async ()
 test('authorizationHeader is HTTP Basic of user:pass, not plaintext', () => {
   const encoded = encodeHttpAuth('admin', 'secret-pass');
   assert.equal(authorizationHeader({ apiUser: 'admin', apiPassword: 'secret-pass' }), `Basic ${encoded}`);
+  assert.equal(authorizationHeader({ apiToken: 'admin:secret-pass' }), `Basic ${encoded}`);
+  assert.equal(authorizationHeader({ apiToken: encoded }), `Basic ${encoded}`);
+  assert.equal(authorizationHeader({ apiToken: encoded, apiUser: 'other', apiPassword: 'nope' }), `Basic ${encoded}`);
   assert.equal(Buffer.from(encoded, 'base64').toString('utf8'), 'admin:secret-pass');
-  assert.doesNotMatch(authorizationHeader({ apiUser: 'admin', apiPassword: 'secret-pass' }), /secret-pass/);
+  assert.doesNotMatch(authorizationHeader({ apiToken: 'admin:secret-pass' }), /secret-pass|Bearer/);
 });
 
 test('getRosterPersonas prefers admin /settings souls over public schedule', async () => {

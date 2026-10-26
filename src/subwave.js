@@ -3,24 +3,18 @@ export function encodeHttpAuth(user, password) {
 }
 
 export function authorizationHeader({ apiUser = '', apiPassword = '', apiToken = '' } = {}) {
+  const token = String(apiToken || '').trim();
+  if (token) {
+    if (token.includes(':')) {
+      const cut = token.indexOf(':');
+      return `Basic ${encodeHttpAuth(token.slice(0, cut), token.slice(cut + 1))}`;
+    }
+    return `Basic ${token}`;
+  }
   const user = String(apiUser || '').trim();
   const password = String(apiPassword || '').trim();
-  if (user && password) {
-    return `Basic ${encodeHttpAuth(user, password)}`;
-  }
-  const token = String(apiToken || '').trim();
-  if (!token) return '';
-  if (token.includes(':')) {
-    const cut = token.indexOf(':');
-    return `Basic ${encodeHttpAuth(token.slice(0, cut), token.slice(cut + 1))}`;
-  }
-  try {
-    const decoded = Buffer.from(token, 'base64').toString('utf8');
-    if (decoded.includes(':')) return `Basic ${token}`;
-  } catch {
-    // keep Bearer fallback
-  }
-  return `Bearer ${token}`;
+  if (user && password) return `Basic ${encodeHttpAuth(user, password)}`;
+  return '';
 }
 
 function abortError(signal) {
@@ -75,7 +69,7 @@ export class SubwaveAdapter {
   async request(pathname, { query, signal } = {}) {
     const authorization = authorizationHeader({
       apiUser: this.apiUser,
-      apiPassword: this.apiPassword || this.apiToken,
+      apiPassword: this.apiPassword,
       apiToken: this.apiToken,
     });
     if (!this.apiUrl || !authorization) {
