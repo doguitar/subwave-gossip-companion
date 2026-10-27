@@ -81,6 +81,36 @@ test('legacy tidbits receive stable thread metadata and persisted tellings retir
   );
 });
 
+test('thread tellings count distinct airings when every member stores the same list', () => {
+  const state = normalizeState({
+    tidbits: [
+      tidbit({ id: 'root', threadId: 'thread', text: 'Root rumor', hearerPersonaIds: null, toldAt: ['2026-09-19T01:00:00.000Z'] }),
+      tidbit({ id: 'follow', threadId: 'thread', text: 'Follow rumor', hearerPersonaIds: null, toldAt: ['2026-09-19T01:00:00.000Z'] }),
+    ],
+  });
+  recordTidbitTelling(state, 'follow', '2026-09-19T02:00:00.000Z');
+  assert.deepEqual(state.tidbits[0].toldAt, ['2026-09-19T01:00:00.000Z', '2026-09-19T02:00:00.000Z']);
+  assert.equal(
+    gossipForActor(state, [PERSONA_A.id], '', 'Neon Time Machine', {
+      now: new Date('2026-09-19T03:00:00.000Z'),
+      policy: { maxTellings: 3 },
+    }).length,
+    1,
+  );
+  const inflated = normalizeState({
+    tidbits: [tidbit({
+      id: 'aired',
+      hearerPersonaIds: null,
+      toldAt: ['2026-09-19T01:00:00.000Z', '2026-09-19T01:00:00.000Z', '2026-09-19T01:00:00.000Z'],
+    })],
+  });
+  assert.deepEqual(inflated.tidbits[0].toldAt, ['2026-09-19T01:00:00.000Z']);
+  assert.equal(gossipForActor(inflated, [PERSONA_A.id], '', 'Neon Time Machine', {
+    now: new Date('2026-09-19T03:00:00.000Z'),
+    policy: { maxTellings: 3 },
+  }).length, 1);
+});
+
 test('thread policy retires age-expired representatives while preserving an eligible rotation', () => {
   const state = normalizeState({
     tidbits: [
