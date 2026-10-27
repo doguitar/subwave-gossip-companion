@@ -251,7 +251,7 @@ test('actor feed excludes the newest commentor and restores the rumor after some
   const state = normalizeState({ tidbits: [older, fresh] });
   const ids = [PERSONA_A.id, PERSONA_B.id];
 
-  assert.deepEqual(gossipForActor(state, ids, 'persona-a', 'Test Show').map((t) => t.id), ['fresh', 'older']);
+  assert.deepEqual(gossipForActor(state, ids, 'persona-a', 'Test Show').map((t) => t.id), ['older', 'fresh']);
 
   recordGossipComment(state, {
     tidbitId: 'older',
@@ -293,7 +293,7 @@ test('actor feed rotates to another subject after escalating one rumor', () => {
   const ids = [PERSONA_A.id, PERSONA_B.id];
   const show = 'Test Show';
 
-  assert.equal(gossipForActor(state, ids, 'persona-a', show).map((t) => t.id)[0], 'rumor-c');
+  assert.equal(gossipForActor(state, ids, 'persona-a', show).map((t) => t.id)[0], 'rumor-a');
 
   recordGossipComment(state, {
     tidbitId: 'rumor-a',
@@ -317,7 +317,7 @@ test('actor feed rotates to another subject after escalating one rumor', () => {
   });
 
   const next = gossipForActor(state, ids, 'persona-a', show).map((t) => t.id);
-  assert.ok(next[0] === 'rumor-b' || next[0] === 'rumor-c', `expected B or C first, got ${next[0]}`);
+  assert.equal(next[0], 'rumor-b');
   assert.ok(!next.includes('rumor-a'));
   assert.ok(!next.includes('rumor-a-esc'));
 });
@@ -347,8 +347,7 @@ test('missing actor feed surfaces each subject once and does not pin escalations
   state.tidbits.push(escalationA);
 
   const feed = gossipForActor(state, ids, '', 'Test Show').map((t) => t.id);
-  assert.deepEqual(feed, ['rumor-a', 'rumor-b']);
-  assert.equal(feed[0], 'rumor-a');
+  assert.deepEqual(feed, ['rumor-a-esc', 'rumor-b']);
 });
 
 test('excluding the only known rumor yields an empty list; a missing actor keeps show order', () => {

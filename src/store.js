@@ -349,8 +349,8 @@ function rumorSubjectGroups(tidbits) {
     group.push(tidbit);
   }
   return groups.map((group) => {
-    const root = group.slice().sort(compareOldestFirst)[0];
-    return { representative: root, root, members: group };
+    const ordered = group.slice().sort(compareOldestFirst);
+    return { representative: ordered[ordered.length - 1], root: ordered[0], members: group };
   });
 }
 
@@ -358,9 +358,10 @@ export function tidbitsKnownBy(state, personaIds) {
   return knownTidbits(state, personaIds).slice().sort(compareShowKnown);
 }
 
-function newestComment(comments, tidbit, show) {
+function newestComment(comments, members, show) {
+  const ids = new Set(members.map((tidbit) => tidbit.id));
   const showKey = typeof show === 'string' ? show.trim() : '';
-  const matches = comments.filter((c) => c.tidbitId === tidbit.id && (!showKey || !c.show || c.show === showKey));
+  const matches = comments.filter((c) => ids.has(c.tidbitId) && (!showKey || !c.show || c.show === showKey));
   if (!matches.length) return null;
   return matches.reduce((best, c) => (c.commentedAt > best.commentedAt ? c : best));
 }
@@ -375,22 +376,22 @@ function retirementState(tidbit, now, policy) {
 
 function gossipRepresentatives(tidbits, actor, show, comments, { now = new Date(), policy = {} } = {}) {
   const groups = rumorSubjectGroups(tidbits);
-  const selected = groups.filter(({ representative }) => {
-    if (retirementState(representative, now, policy)) return false;
-    const latest = newestComment(comments, representative, show);
+  const selected = groups.filter((group) => {
+    if (retirementState(group.representative, now, policy)) return false;
+    const latest = newestComment(comments, group.members, show);
     return !(latest && latest.actorPersonaId === actor);
   });
   const never = [];
   const prior = [];
   for (const group of selected) {
-    const latest = newestComment(comments, group.representative, show);
+    const latest = newestComment(comments, group.members, show);
     if (!latest) never.push(group);
     else prior.push({ group, commentedAt: latest.commentedAt });
   }
-  never.sort((a, b) => compareShowKnown(a.representative, b.representative));
+  never.sort((a, b) => compareOldestFirst(a.root, b.root));
   prior.sort((a, b) => {
     if (a.commentedAt !== b.commentedAt) return a.commentedAt < b.commentedAt ? -1 : 1;
-    return compareShowKnown(a.group.representative, b.group.representative);
+    return compareOldestFirst(a.group.root, b.group.root);
   });
   return [...never, ...prior].map((row) => row.group || row).map((group) => group.representative);
 }
@@ -399,13 +400,5 @@ export function gossipForActor(state, personaIds, actorPersonaId, show, options 
   const known = knownTidbits(state, personaIds);
   const actor = typeof actorPersonaId === 'string' ? actorPersonaId.trim() : '';
   const comments = gossipComments(state);
-  if (!actor) {
-    const groups = rumorSubjectGroups(known);
-    return groups
-      .slice()
-      .filter((group) => !retirementState(group.representative, options.now || new Date(), options.policy || {}))
-      .sort((a, b) => compareOldestFirst(a.root, b.root))
-      .map((group) => group.representative);
-  }
   return gossipRepresentatives(known, actor, show, comments, options);
 }
