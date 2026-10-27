@@ -63,7 +63,7 @@ export function normalizeTidbit(raw) {
   const canonicalSubjectPersonaId = typeof raw?.canonicalSubjectPersonaId === 'string' && raw.canonicalSubjectPersonaId.trim()
     ? raw.canonicalSubjectPersonaId.trim()
     : canonicalTargetPersonaIds[0] || '';
-  const toldAt = stringList(raw?.toldAt).filter((value) => !Number.isNaN(new Date(value).getTime()));
+  const toldAt = [...new Set(stringList(raw?.toldAt).filter((value) => !Number.isNaN(new Date(value).getTime())))];
   return {
     ...base,
     id,
@@ -135,7 +135,8 @@ export function recordTidbitTelling(state, tidbitId, toldAt) {
   if (!tidbit) return [];
   const threadId = tidbit.threadId || tidbit.id;
   const members = currentTidbits(state).filter((item) => (item.threadId || item.id) === threadId);
-  const existing = members.flatMap((item) => item.toldAt || []);
+  // Each member stores the same thread list; concatenating copies counts one airing N times.
+  const existing = [...new Set(members.flatMap((item) => item.toldAt || []))];
   if (existing.includes(when)) return existing;
   const toldAtList = [...existing, when].sort();
   for (const member of members) member.toldAt = toldAtList;
@@ -365,7 +366,7 @@ function newestComment(comments, tidbit, show) {
 }
 
 function retirementState(tidbit, now, policy) {
-  const toldAt = tidbit.toldAt || [];
+  const toldAt = [...new Set(tidbit.toldAt || [])];
   const count = Number.isInteger(policy?.maxTellings) && policy.maxTellings > 0 ? policy.maxTellings : Infinity;
   const ageMs = Number.isFinite(policy?.maxAgeMs) && policy.maxAgeMs > 0 ? policy.maxAgeMs : Infinity;
   const created = new Date(tidbit.createdAt).getTime();
