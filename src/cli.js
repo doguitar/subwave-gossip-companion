@@ -1,7 +1,12 @@
 import path from 'node:path';
 
 import { applySettings, parseRefreshCount, requireConfig, summarizeSoulsIfEnabled } from './config.js';
-import { ensurePromptWorkspace, warnIfPromptDrift } from './promptWorkspace.js';
+import {
+  ensurePromptWorkspace,
+  ensureReviewWorkspace,
+  warnIfPromptDrift,
+  warnIfReviewDrift,
+} from './promptWorkspace.js';
 import { GossipStore } from './store.js';
 import { acquireServerOwnership } from './workspaceLock.js';
 import { SubwaveAdapter } from './subwave.js';
@@ -73,6 +78,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const command = argv[0] || 'serve';
   let config = requireConfig(env);
   ensurePromptWorkspace(baseDir);
+  ensureReviewWorkspace(baseDir);
   config = requireConfig(env);
   const log = createLog(config.operationalLogPath, console, {
     maxBytes: config.operationalLogMaxBytes,
@@ -83,6 +89,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     retentionMs: config.operationalLogRetentionMs,
   });
   warnIfPromptDrift(config.baseDir, log);
+  warnIfReviewDrift(config.baseDir, log);
   const store = new GossipStore(config.statePath);
   if (command === 'serve') await acquireServerOwnership(config.statePath);
   await store.load();

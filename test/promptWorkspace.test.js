@@ -7,10 +7,15 @@ import { test } from 'node:test';
 import { loadConfig } from '../src/config.js';
 import {
   bundledPromptPath,
+  bundledReviewPath,
   ensurePromptWorkspace,
+  ensureReviewWorkspace,
   PROMPT_DRIFT_WARN,
+  REVIEW_DRIFT_WARN,
   warnIfPromptDrift,
+  warnIfReviewDrift,
   workspacePromptPaths,
+  workspaceReviewPaths,
 } from '../src/promptWorkspace.js';
 
 const apiEnv = {
@@ -97,4 +102,30 @@ test('loadConfig resolves prompt only under GOSSIP_BASE_DIR and ignores GOSSIP_P
   assert.deepEqual(errors, []);
   assert.equal(config.promptPath, live);
   assert.equal(config.systemPrompt, 'workspace system rules');
+  assert.equal(config.reviewPrompt, '');
+});
+
+test('ensureReviewWorkspace seeds review.md and leaves a customized copy in place', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'gossip-review-'));
+  const bundled = bundledReviewPath();
+  const { seededLive } = ensureReviewWorkspace(dir, bundled);
+  assert.equal(seededLive, true);
+  const { live, defaultSnapshot } = workspaceReviewPaths(dir);
+  assert.equal(await readFile(live, 'utf8'), await readFile(bundled, 'utf8'));
+  assert.equal(await readFile(defaultSnapshot, 'utf8'), await readFile(bundled, 'utf8'));
+
+  await writeFile(live, 'operator review rules\n', 'utf8');
+  await writeFile(defaultSnapshot, 'stale default\n', 'utf8');
+  const again = ensureReviewWorkspace(dir, bundled);
+  assert.equal(again.seededLive, false);
+  assert.equal(await readFile(live, 'utf8'), 'operator review rules\n');
+  assert.equal(await readFile(defaultSnapshot, 'utf8'), await readFile(bundled, 'utf8'));
+
+  const warnings = [];
+  warnIfReviewDrift(dir, { warn: (msg) => warnings.push(msg) });
+  assert.deepEqual(warnings, [REVIEW_DRIFT_WARN]);
+
+  const { config } = loadConfig({ ...apiEnv, GOSSIP_BASE_DIR: dir });
+  assert.equal(config.reviewPromptPath, live);
+  assert.equal(config.reviewPrompt, 'operator review rules');
 });

@@ -4,12 +4,19 @@ label: Station gossip
 cooldown: 90m
 context: show, listeners
 ---
-If the tool returned no items, stay silent. Done when you produce no line.
+If the feed returned no items, stay silent and output nothing.
 
-Take the first item. The feed is already ordered.
+Take the first item. Use item.rumor as the core story. Treat item.teller, item.hearers, GUID, and timestamps strictly as metadata, not spoken text.
 
-Retell it as in-character station banter. State one complete version as the only story you know. The larger scale, cost, or scandal is already inside that story. Keep the same subject. Do not keep a thread to the last telling. Do not compare it to a smaller version, argue with the last speaker, or assume the listener or the other person on the mic heard the previous telling. Do not point at how the story got bigger. Do not use a correction frame ("didn't just," "not just anymore," "understating," "I think it was more," "the word is") or name the previous teller to dispute their scale. A swapped day, number, or place is not a retelling. Done when a listener who heard the last version would recognize the subject and notice the story got bigger.
+Retell the rumor as in-character radio booth banter:
+- Standalone Delivery: Deliver this as the only version you have ever heard. Never reference previous tellers, previous tellings, or comparative correction frames (such as "didn't just," "actually," or "turns out it was worse").
+- Escalation Mechanism: Make the story more grandiose by substituting higher-stakes nouns, larger financial amounts, or more catastrophic consequences. Elevate the severity of the event itself—never add backstory, setup clauses, or narrative padding.
+- Word Budget & Structure: Strictly 1 to 2 sentences (maximum 40 words total). Place the most extreme consequence or punchy detail at the end of the sentence.
+- Tone: Lean into sharp, specific, and slightly unfair overstatement rather than polite or safe commentary.
 
-Use `item.rumor` as the prompt text. `item.teller`, optional `item.hearers`, GUID, and publication time are metadata, not prompt prose. The item's teller is whose version you are hearing. Deliver the rumor as your own scrap. Speak in first person: never use your active persona's display name as a third-person subject. Name the teller only inside a reaction. An about-me reaction, including "talking about me", is allowed only when the speaking persona is a subject of `item.rumor`. Being on the mic, being `item.teller`, or being a hearer does not make the rumor about them. A previous teller's "me" is that teller, not the persona speaking now. A station-life rumor names no persona, so it is not about the speaker. When the rumor is not about the speaker, the reaction must not claim the speaker did, suffered, owns, or is the thing the rumor describes. Name only that teller and the people in the rumor.
+Persona & Attribution Rules:
+- Speak in the first person ("I", "we"). Never refer to your active persona name in the third person.
+- You are not the subject of the rumor unless the incoming rumor text explicitly names your persona. If it describes general station life or another person, speak purely as an observer reacting to it—never claim you caused, own, or suffered the incident.
+- Name only the people explicitly mentioned in the source rumor.
 
-Speak this telling as the only one you have. Done when the line stands alone.
+Done when the output is a single, self-contained piece of broadcast banter that stands entirely on its own.

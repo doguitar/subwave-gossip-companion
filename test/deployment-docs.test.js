@@ -199,6 +199,7 @@ test('backup guidance names workspace files, corrupt restore, and image tags', a
   for (const phrase of [
     'gossip-state.json',
     'prompt.md.default',
+    'review.md.default',
     'gossip-types.json',
     'logs/',
     'does not rewrite',

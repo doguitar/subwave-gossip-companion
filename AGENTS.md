@@ -6,7 +6,7 @@ Read the section that matches the change. Do not copy `docs/reference.md` into t
 
 | Change | Read and edit | Prove it with |
 |---|---|---|
-| Generation, prompts, provider calls, review | `src/llm.js`, `src/seed.js`, `src/review.js`, `prompt.md` | `test/llm.test.js`, `test/seed.test.js`, `test/review.test.js` |
+| Generation, prompts, provider calls, review | `src/llm.js`, `src/seed.js`, `src/review.js`, `prompt.md`, `review.md` | `test/llm.test.js`, `test/seed.test.js`, `test/review.test.js` |
 | Acceptance of a rumor | `src/validate.js`, called from `src/seed.js` | `test/validate.test.js`, `test/seed.test.js` |
 | Stored tidbits, comments, tellings, locks | `src/store.js` | `test/store.test.js` |
 | RSS selection and item shape | `src/rss.js`, `src/server.js` | `test/rss.test.js` |
@@ -32,4 +32,4 @@ A behavior change updates the test that locks the contract and, when an operator
 
 Run `npm test`. Then run the test file named for the path you changed, for example `node --test test/rss.test.js`.
 
-Do not commit `.env`, `config.yaml`, `logs/`, `data/*.json`, or a station-private `prompt.md`. The packaged `prompt.md` stays the product prompt.
+Do not commit `.env`, `config.yaml`, `logs/`, `data/*.json`, or a station-private `prompt.md` or `review.md`. The packaged `prompt.md` and `review.md` stay the product prompts.

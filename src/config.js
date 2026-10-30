@@ -198,13 +198,18 @@ export function loadConfig(env = process.env) {
     errors.push(`GOSSIP_OPERATIONAL_LOG_RETENTION_MS must be an integer 1-${OPERATIONAL_LOG_RETENTION_MS_LIMIT}`);
   }
   const promptPath = path.join(baseDir, 'prompt.md');
+  const reviewPromptPath = path.join(baseDir, 'review.md');
   const gossipTypesPath = resolveBase(env.GOSSIP_TYPES_PATH, 'gossip-types.json');
-  let systemPrompt = '';
-  try {
-    systemPrompt = readFileSync(promptPath, 'utf8').trim();
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
+  const readWorkspaceText = (filePath) => {
+    try {
+      return readFileSync(filePath, 'utf8').trim();
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      return '';
+    }
+  };
+  const systemPrompt = readWorkspaceText(promptPath);
+  const reviewPrompt = readWorkspaceText(reviewPromptPath);
   const gossipTypesResult = loadGossipTypesFromPath(gossipTypesPath);
   if (gossipTypesResult.errors?.length) {
     errors.push(...gossipTypesResult.errors);
@@ -222,9 +227,11 @@ export function loadConfig(env = process.env) {
   const config = {
     baseDir,
     promptPath,
+    reviewPromptPath,
     gossipTypesPath,
     rumorRegisters: gossipTypesResult.registers ?? [],
     systemPrompt,
+    reviewPrompt,
     apiUrl,
     apiUser,
     apiPassword,

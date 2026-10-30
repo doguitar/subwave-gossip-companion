@@ -12,7 +12,7 @@
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <Icon>https://github.com/doguitar.png</Icon>
   <Config Name="HTTP port" Target="8080" Default="8080" Mode="tcp" Description="Gossip companion HTTP port." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
-  <Config Name="Workspace" Target="/workspace" Default="/mnt/user/appdata/subwave-gossip-companion" Mode="rw" Description="Persistent state, prompt.md, and logs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/subwave-gossip-companion</Config>
+  <Config Name="Workspace" Target="/workspace" Default="/mnt/user/appdata/subwave-gossip-companion" Mode="rw" Description="Persistent state, prompt.md, review.md, and logs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/subwave-gossip-companion</Config>
   <Config Name="SUBWAVE_API_URL" Target="SUBWAVE_API_URL" Default="" Description="SUB/WAVE API base URL." Type="Variable" Display="always" Required="true" Mask="false"></Config>
   <Config Name="SUBWAVE_API_TOKEN" Target="SUBWAVE_API_TOKEN" Default="" Description="SUB/WAVE HTTP Basic credential (base64 of user:password)." Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="PROVIDER" Target="PROVIDER" Default="openai" Description="LLM provider: openai, google, or anthropic." Type="Variable" Display="always" Required="true" Mask="false">openai</Config>

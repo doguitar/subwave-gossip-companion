@@ -5,6 +5,7 @@ import { appendLlmCall, shapeLlmCallRecord } from './callLog.js';
 import { personaSoul } from './roles.js';
 
 export const SEED_SYSTEM = readFileSync(new URL('../prompt.md', import.meta.url), 'utf8').trim();
+export const REVIEW_SYSTEM = readFileSync(new URL('../review.md', import.meta.url), 'utf8').trim();
 
 export const DEFAULT_MODELS = {
   openai: 'gpt-4o-mini',
@@ -124,15 +125,6 @@ function firstBalancedObject(text, start) {
   }
   return null;
 }
-
-export const REVIEW_SYSTEM = `You edit quoted hallway rumors for a fictional radio station.
-Return JSON only. Each value is only the inner quoted rumor, not the "told" / "said on air" wrapper.
-Make the rumor coherent. A listener must be able to follow who did what, and the result must follow from that action.
-Remove non-sequiturs: a second image, a punchline, or a clause that does not follow from the cause.
-Keep the same people, the same prop, and the same event. Do not add facts to fill a gap; cut the part that does not connect.
-One sentence, 20 to 240 characters.
-The teller's name stays out of the quote. Keep every listed rumor-target's exact display name.
-Done when every clause follows from the one before it.`;
 
 export function reviewUserPrompt({ houseRules = '', day, tidbits = [], round = 1, totalRounds = 1 }) {
   const lines = tidbits.map((t, index) => {
@@ -605,7 +597,7 @@ export async function generateReview({
   log,
   signal,
 }) {
-  const systemPrompt = REVIEW_SYSTEM;
+  const systemPrompt = config.reviewPrompt || REVIEW_SYSTEM;
   const provider = config.llmProvider || 'openai';
   const apiKey = config.llmApiKey;
   const model = config.llmModel || DEFAULT_MODELS[provider] || DEFAULT_MODELS.openai;
