@@ -9,7 +9,7 @@ import {
   pruneGossipCommentsToTidbits,
   tidbitKey,
 } from './store.js';
-import { validateRumor } from './validate.js';
+import { MAX_RUMOR_LENGTH, validateRumor } from './validate.js';
 import { formatRumorForOperationalLog } from './log.js';
 import { reviewGossipBatch } from './review.js';
 
@@ -163,7 +163,7 @@ async function generateOne({
       }), signal);
       const rumor = rumorFromPayload(payload);
       const anchors = payload?.anchors || (Array.isArray(payload?.items) ? payload.items[0]?.anchors : null) || {};
-      const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: 240 });
+      const check = validateRumor(rumor, { targets: roles.targets, minLength, maxLength: MAX_RUMOR_LENGTH });
       if (check.ok) {
         const tidbit = tidbitFromRoles(roles, rumor, createdAt, anchors);
         log.info?.(

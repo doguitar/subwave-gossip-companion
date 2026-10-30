@@ -188,16 +188,17 @@ test('seed prompt omits multi-target-only guidance for zero or one rumor-target'
 });
 
 test('SEED_SYSTEM does not prescribe a two-target sentence shape', () => {
-  assert.match(SEED_SYSTEM, /One sentence/);
+  assert.match(SEED_SYSTEM, /One or two sentences/);
   assert.doesNotMatch(SEED_SYSTEM, /one action they share|working the prop together/);
 });
 
 test('REVIEW_SYSTEM edits for coherence and drops non-sequiturs', () => {
-  assert.match(REVIEW_SYSTEM, /20 to 240 characters/);
+  assert.match(REVIEW_SYSTEM, /20 to 420 characters/);
   assert.match(REVIEW_SYSTEM, /coherent/);
   assert.match(REVIEW_SYSTEM, /Non-Sequiturs/i);
   assert.match(REVIEW_SYSTEM, /original people, props, and core events/);
   assert.match(REVIEW_SYSTEM, /Do not include the teller's name/);
+  assert.match(REVIEW_SYSTEM, /"why"/);
   assert.match(reviewUserPrompt({ day: '2026-09-19', tidbits: [] }), /Remove non-sequiturs/);
   assert.doesNotMatch(REVIEW_SYSTEM, /sharper laugh|punch-up|cross-rumor continuity|clearer and funnier/i);
 });
@@ -206,7 +207,7 @@ test('SEED_SYSTEM allows credible provenance while rumor-targets stay the subjec
   assert.match(SEED_SYSTEM, /provenance|how the teller learned|overheard|walked in/i);
   assert.match(SEED_SYSTEM, /rumor-targets|the subject/i);
   assert.doesNotMatch(SEED_SYSTEM, /only about the subject\.?\s*$/m);
-  assert.match(SEED_SYSTEM, /20 to 240/);
+  assert.match(SEED_SYSTEM, /20 to 420/);
 });
 
 test('SEED_SYSTEM does not require a reaction menu', () => {

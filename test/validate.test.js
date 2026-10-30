@@ -6,6 +6,12 @@ test('validateRumor accepts a single short beat', () => {
   assert.deepEqual(validateRumor('Heard Reed Silver laminated a fake inspection sticker in the galley.'), { ok: true });
 });
 
+test('validateRumor accepts two sentences that state the cause and the result', () => {
+  const rumor = 'Reed Silver laminated a fake inspection sticker onto the galley cutter. The cutter waved the sticker at the next shift and cleared the whole rack.';
+  assert.equal(rumor.length <= 420, true);
+  assert.deepEqual(validateRumor(rumor), { ok: true });
+});
+
 test('validateRumor rejects a second and-now beat and overlong text', () => {
   assert.deepEqual(
     validateRumor('Heard Reed Silver laminated a fake sticker, and now the cutter is waving back.'),
