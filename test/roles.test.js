@@ -193,10 +193,11 @@ test('SEED_SYSTEM does not prescribe a two-target sentence shape', () => {
 });
 
 test('REVIEW_SYSTEM edits for coherence and drops non-sequiturs', () => {
-  assert.match(REVIEW_SYSTEM, /One sentence, 20 to 240 characters/);
+  assert.match(REVIEW_SYSTEM, /20 to 240 characters/);
   assert.match(REVIEW_SYSTEM, /coherent/);
-  assert.match(REVIEW_SYSTEM, /non-sequiturs/i);
-  assert.match(REVIEW_SYSTEM, /same people, the same prop, and the same event/);
+  assert.match(REVIEW_SYSTEM, /Non-Sequiturs/i);
+  assert.match(REVIEW_SYSTEM, /original people, props, and core events/);
+  assert.match(REVIEW_SYSTEM, /Do not include the teller's name/);
   assert.match(reviewUserPrompt({ day: '2026-09-19', tidbits: [] }), /Remove non-sequiturs/);
   assert.doesNotMatch(REVIEW_SYSTEM, /sharper laugh|punch-up|cross-rumor continuity|clearer and funnier/i);
 });
