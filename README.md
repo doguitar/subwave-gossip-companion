@@ -37,6 +37,7 @@ GOSSIP_HEADERS_TIMEOUT_MS: "10000"
 GOSSIP_REQUEST_TIMEOUT_MS: "30000"
 GOSSIP_SHUTDOWN_DEADLINE_MS: "5000"
 GOSSIP_REVIEW_ROUNDS: "0"
+GOSSIP_SOUL_SUMMARY: "1"
 GOSSIP_THREAD_MAX_TELLINGS: "3"
 GOSSIP_THREAD_MAX_AGE_MS: "86400000"
 ```
@@ -44,6 +45,8 @@ GOSSIP_THREAD_MAX_AGE_MS: "86400000"
 `PROVIDER_THINKING` (or `GOSSIP_LLM_THINKING`) optionally steers provider thinking/reasoning depth for seed-generation LLM calls. When unset or blank after trim, thinking is off and outgoing request bodies match the pre-thinking defaults. When set to any non-empty string, that value is passed through to the provider (for example `low`, `medium`, `high`, `max`, or tokens your local proxy understands) without validation.
 
 `GOSSIP_REVIEW_ROUNDS` (default `0`, range `0`–`5`) runs optional post-generation edit passes after a successful seed or refresh batch. Each round validates revisions against the canonical teller, hearer, target, and comic-register assignment made during generation; teller/hearer persona ids and the told/said-on-air wrapper stay fixed. Review logs and seed/refresh results report accepted, rejected, and stale candidates. Higher values add latency and LLM cost. At `0`, behavior matches pre-review releases (no extra model calls).
+
+`GOSSIP_SOUL_SUMMARY` (default `1`) runs one LLM compression per roster persona before seed, refresh, and generate. `0` skips those calls and the seed prompt uses the full soul text. The `summarize-souls` command still prints summaries when you run it.
 
 `GOSSIP_REFRESH_COUNT` (default `1`, range `1`–`10`) is the default maximum number of accepted tidbits for one refresh. `node src/cli.js refresh [count]` accepts the same range as a one-run override, and `POST /gossip/refresh` accepts it as JSON `{ "count": 1 }` or a `count` query parameter. Explicit invalid counts are rejected. A low count may return a successful roster-incomplete board; `refreshed` and `tidbits` always report only the accepted tidbits and never exceed the requested count.
 

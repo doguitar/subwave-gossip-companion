@@ -911,6 +911,7 @@ function missingSettingsBlock(model = 'gpt-4o-mini') {
     ['GOSSIP_SEED_CAP', 5],
     ['GOSSIP_HISTORY_GENERATIONS', 7],
     ['GOSSIP_REVIEW_ROUNDS', 0],
+    ['GOSSIP_SOUL_SUMMARY', 1],
     ['GOSSIP_THREAD_MAX_TELLINGS', 3],
     ['GOSSIP_THREAD_MAX_AGE_MS', 86400000],
     ['GOSSIP_REFRESH_SECRET', null],

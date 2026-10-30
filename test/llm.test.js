@@ -17,7 +17,7 @@ import {
   LLM_CALL_LOG_MAX_BYTES,
   LLM_CALL_LOG_RETENTION_MS,
 } from '../src/callLog.js';
-import { loadConfig, requireConfig } from '../src/config.js';
+import { loadConfig, requireConfig, summarizeSoulsIfEnabled } from '../src/config.js';
 import { createLog, formatRumorForOperationalLog } from '../src/log.js';
 import { LLM_OUTPUT_BUDGET, buildLlmRequest, extractJsonObject, generateReview, generateSeed, parseLlmResponse, preflightProvider, reviewOutputBudget, soulSummaryUserPrompt, summarizeHouseRules, summarizePersonaSouls } from '../src/llm.js';
 import { RUMOR_REGISTERS } from '../src/register.js';
@@ -75,6 +75,28 @@ test('loadConfig maps PROVIDER_THINKING and GOSSIP_LLM_THINKING alias with prima
     loadConfig({ ...base, PROVIDER_THINKING: 'low', GOSSIP_LLM_THINKING: 'max' }).config.llmThinkingLevel,
     'low',
   );
+});
+
+test('loadConfig accepts GOSSIP_SOUL_SUMMARY 0 or 1', () => {
+  const base = {
+    GOSSIP_BASE_DIR: '/workspace',
+    GOSSIP_TYPES_PATH: repoGossipTypes,
+    SUBWAVE_API_URL: 'https://listen.example/api',
+    SUBWAVE_API_USER: 'admin',
+    SUBWAVE_API_PASSWORD: 'x',
+    GOSSIP_REFRESH_SECRET: 'test-secret',
+  };
+  assert.equal(loadConfig(base).config.soulSummary, true);
+  assert.equal(loadConfig({ ...base, GOSSIP_SOUL_SUMMARY: '0' }).config.soulSummary, false);
+  assert.equal(loadConfig({ ...base, GOSSIP_SOUL_SUMMARY: '1' }).config.soulSummary, true);
+  assert.match(loadConfig({ ...base, GOSSIP_SOUL_SUMMARY: '2' }).errors.join('; '), /GOSSIP_SOUL_SUMMARY/);
+});
+
+test('summarizeSoulsIfEnabled drops a hook when soul summaries are off', () => {
+  const hook = () => {};
+  assert.equal(summarizeSoulsIfEnabled({ soulSummary: false }, hook), null);
+  assert.equal(summarizeSoulsIfEnabled({ soulSummary: true }, hook), hook);
+  assert.equal(summarizeSoulsIfEnabled({}, hook), hook);
 });
 
 test('loadConfig accepts GOSSIP_REVIEW_ROUNDS 0-5 and rejects out-of-range values', () => {

@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { applySettings, parseRefreshCount, requireConfig } from './config.js';
+import { applySettings, parseRefreshCount, requireConfig, summarizeSoulsIfEnabled } from './config.js';
 import { ensurePromptWorkspace, warnIfPromptDrift } from './promptWorkspace.js';
 import { GossipStore } from './store.js';
 import { acquireServerOwnership } from './workspaceLock.js';
@@ -164,7 +164,10 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config: runConfig, log, ...args }),
       generateReview: (args) => generateReview({ config: runConfig, log, ...args }),
-      summarizeSouls: (personas) => summarizePersonaSouls({ config: runConfig, personas, log }),
+      summarizeSouls: summarizeSoulsIfEnabled(
+        runConfig,
+        (personas) => summarizePersonaSouls({ config: runConfig, personas, log }),
+      ),
       summarizeHouseRules: (rules) => summarizeHouseRules({ config: runConfig, houseRules: rules, log }),
     });
     const fresh = store.snapshot().tidbits.filter((tidbit) => !before.has(tidbit.id));
@@ -188,7 +191,10 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config, log, ...args }),
       generateReview: (args) => generateReview({ config, log, ...args }),
-      summarizeSouls: (personas) => summarizePersonaSouls({ config, personas, log }),
+      summarizeSouls: summarizeSoulsIfEnabled(
+        config,
+        (personas) => summarizePersonaSouls({ config, personas, log }),
+      ),
       summarizeHouseRules: (rules) => summarizeHouseRules({ config, houseRules: rules, log }),
     });
     log.info(`[gossip] seed result ${JSON.stringify(result)}`);
@@ -210,12 +216,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       rumorRegisters: config.rumorRegisters,
       generate: (args) => generateSeed({ config, log, ...args }),
       generateReview: (args) => generateReview({ config, log, ...args }),
-      summarizeSouls: (personas, options = {}) => summarizePersonaSouls({
+      summarizeSouls: summarizeSoulsIfEnabled(config, (personas, options = {}) => summarizePersonaSouls({
         config,
         personas,
         log,
         signal: options.signal,
-      }),
+      })),
       summarizeHouseRules: (rules, options = {}) => summarizeHouseRules({
         config,
         houseRules: rules,
