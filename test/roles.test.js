@@ -197,6 +197,7 @@ test('REVIEW_SYSTEM edits for coherence and drops non-sequiturs', () => {
   assert.match(REVIEW_SYSTEM, /coherent/);
   assert.match(REVIEW_SYSTEM, /Non-Sequiturs/i);
   assert.match(REVIEW_SYSTEM, /original people, props, and core events/);
+  assert.match(REVIEW_SYSTEM, /Do not include the teller's name/);
   assert.match(REVIEW_SYSTEM, /"why"/);
   assert.match(reviewUserPrompt({ day: '2026-09-19', tidbits: [] }), /Remove non-sequiturs/);
   assert.doesNotMatch(REVIEW_SYSTEM, /sharper laugh|punch-up|cross-rumor continuity|clearer and funnier/i);
