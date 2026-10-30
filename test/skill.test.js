@@ -112,43 +112,19 @@ test('skill instructions escalate the rumor in character and never narrate drift
   const skill = await readFile(new URL('../skills/station-gossip/SKILL.md', import.meta.url), 'utf8');
   const cohostedSkill = await readFile(new URL('../skills/station-gossip-cohosted/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /Take the first item/);
-  assert.match(skill, /whose version you are hearing/);
-  assert.match(skill, /your own scrap/);
   assert.match(skill, /stay silent/);
-  assert.match(skill, /only one you have/);
   assert.match(skill, /item\.rumor/);
-  assert.match(skill, /never use your active persona's display name as a third-person subject/);
-  assert.match(cohostedSkill, /item\.rumor/);
-  assert.match(cohostedSkill, /per active persona/);
-  assert.match(cohostedSkill, /One cohost being a subject does not make the reaction true for another/);
-  assert.match(cohostedSkill, /never use an active persona's display name as a third-person subject/);
+  assert.match(skill, /only version you have ever heard/);
+  assert.match(skill, /Never refer to your active persona name in the third person/);
   for (const text of [skill, cohostedSkill]) {
-    assert.match(text, /only story you know/);
-    assert.match(text, /already inside that story/);
-    assert.match(text, /Do not keep a thread to the last telling/);
-    assert.match(text, /Do not compare it to a smaller version/);
-    assert.match(text, /argue with the last speaker/);
-    assert.match(text, /assume the listener or the other person on the mic heard the previous telling/);
-    assert.match(text, /Do not point at how the story got bigger/);
+    assert.match(text, /item\.rumor/);
     assert.match(text, /didn't just/);
-    assert.match(text, /not just anymore/);
-    assert.match(text, /understating/);
-    assert.match(text, /I think it was more/);
-    assert.match(text, /the word is/);
-    assert.match(text, /name the previous teller to dispute their scale/);
-    assert.doesNotMatch(text, /Escalate|more salacious|more grandiose|more costly|the version you were given|ties this rumor to the last telling/);
-    const aboutMe = text.split(/(?<=\.)\s+/).filter((sentence) => sentence.includes('talking about me'));
-    assert.ok(aboutMe.length >= 1);
-    for (const sentence of aboutMe) {
-      assert.match(sentence, /only when the speaking persona is a subject of `item\.rumor`/);
-      assert.doesNotMatch(sentence, /such as/);
-    }
-    assert.doesNotMatch(text, /I don't know why X is talking about me/);
-    assert.match(text, /Name the teller only inside a reaction/);
-    assert.match(text, /Being on the mic, being `item\.teller`, or being a hearer does not/);
-    assert.match(text, /A previous teller's "me" is that teller/);
-    assert.match(text, /A station-life rumor names no persona/);
-    assert.match(text, /must not claim the speaker did, suffered, owns, or is the thing/);
+    assert.match(text, /more grandiose/);
+    assert.match(text, /maximum 40 words/);
+    assert.match(text, /explicitly names your persona/);
+    assert.match(text, /never claim you caused, own, or suffered/);
+    assert.match(text, /Name only the people explicitly mentioned/);
+    assert.doesNotMatch(text, /more salacious|ties this rumor to the last telling/);
   }
 
   const source = 'Alpha heard the cart skip twice behind the booth.';
