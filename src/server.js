@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
-import { parseRefreshCount } from './config.js';
+import { parseRefreshCount, summarizeSoulsIfEnabled } from './config.js';
 import { currentTidbits, gossipForActor, stateFileReadable } from './store.js';
 import { personasForShow } from './subwave.js';
 import { retellableRumor } from './validate.js';
@@ -284,10 +284,11 @@ export function createServer({
 }) {
   const generateFn = generate || ((args) => generateSeed({ config, log, ...args }));
   const generateReviewFn = (args) => generateReview({ config, log, ...args });
-  const summarizeSoulsFn = summarizeSoulsHook
-    || (config.soulSummary === false
-      ? null
-      : ((personas, options = {}) => summarizePersonaSouls({ config, personas, log, signal: options.signal })));
+  const summarizeSoulsFn = summarizeSoulsIfEnabled(
+    config,
+    summarizeSoulsHook
+      || ((personas, options = {}) => summarizePersonaSouls({ config, personas, log, signal: options.signal })),
+  );
   const summarizeHouseRulesFn = summarizeHouseRulesHook
     || ((rules, options = {}) => summarizeHouseRules({ config, houseRules: rules, log, signal: options.signal }));
   let activeRefreshes = 0;

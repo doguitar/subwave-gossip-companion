@@ -9,6 +9,7 @@ const DEFAULT_PORT = 8080;
 const DEFAULT_SEED_CAP = 5;
 const DEFAULT_GOSSIP_HISTORY_GENERATIONS = 7;
 const DEFAULT_GOSSIP_REVIEW_ROUNDS = 0;
+const DEFAULT_GOSSIP_SOUL_SUMMARY = '1';
 const DEFAULT_THREAD_MAX_TELLINGS = 3;
 const DEFAULT_THREAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_REFRESH_MAX_CONCURRENCY = 1;
@@ -25,6 +26,10 @@ const DEFAULT_MODELS = {
   google: 'gemini-2.0-flash',
   anthropic: 'claude-sonnet-4-5',
 };
+
+export function summarizeSoulsIfEnabled(config, summarizeSouls) {
+  return config?.soulSummary === false ? null : summarizeSouls;
+}
 
 export function parseRefreshCount(value, name = 'count') {
   const count = Number(value);
@@ -85,7 +90,7 @@ export function loadConfig(env = process.env) {
   if (!Number.isInteger(reviewRounds) || reviewRounds < 0 || reviewRounds > 5) {
     errors.push('GOSSIP_REVIEW_ROUNDS must be an integer 0-5');
   }
-  const soulSummaryRaw = String(env.GOSSIP_SOUL_SUMMARY ?? '1').trim();
+  const soulSummaryRaw = String(env.GOSSIP_SOUL_SUMMARY ?? DEFAULT_GOSSIP_SOUL_SUMMARY).trim();
   const soulSummary = soulSummaryRaw === '1' ? true : soulSummaryRaw === '0' ? false : null;
   if (soulSummary === null) errors.push('GOSSIP_SOUL_SUMMARY must be 0 or 1');
   const threadMaxTellings = Number(env.GOSSIP_THREAD_MAX_TELLINGS ?? String(DEFAULT_THREAD_MAX_TELLINGS));
@@ -357,7 +362,7 @@ const SETTINGS = [
   ['GOSSIP_SEED_CAP', String(DEFAULT_SEED_CAP)],
   ['GOSSIP_HISTORY_GENERATIONS', String(DEFAULT_GOSSIP_HISTORY_GENERATIONS)],
   ['GOSSIP_REVIEW_ROUNDS', String(DEFAULT_GOSSIP_REVIEW_ROUNDS)],
-  ['GOSSIP_SOUL_SUMMARY', '1'],
+  ['GOSSIP_SOUL_SUMMARY', DEFAULT_GOSSIP_SOUL_SUMMARY],
   ['GOSSIP_THREAD_MAX_TELLINGS', String(DEFAULT_THREAD_MAX_TELLINGS)],
   ['GOSSIP_THREAD_MAX_AGE_MS', String(DEFAULT_THREAD_MAX_AGE_MS)],
   ['GOSSIP_FEED_BASE_URL', null],
