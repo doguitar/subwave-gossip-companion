@@ -285,7 +285,9 @@ export function createServer({
   const generateFn = generate || ((args) => generateSeed({ config, log, ...args }));
   const generateReviewFn = (args) => generateReview({ config, log, ...args });
   const summarizeSoulsFn = summarizeSoulsHook
-    || ((personas, options = {}) => summarizePersonaSouls({ config, personas, log, signal: options.signal }));
+    || (config.soulSummary === false
+      ? null
+      : ((personas, options = {}) => summarizePersonaSouls({ config, personas, log, signal: options.signal })));
   const summarizeHouseRulesFn = summarizeHouseRulesHook
     || ((rules, options = {}) => summarizeHouseRules({ config, houseRules: rules, log, signal: options.signal }));
   let activeRefreshes = 0;

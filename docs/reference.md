@@ -62,6 +62,7 @@ The process binds `GOSSIP_HOST` (default `0.0.0.0`) and `GOSSIP_PORT` (default `
 | `GOSSIP_SEED_CAP` | `5` | integer 1–50 |
 | `GOSSIP_HISTORY_GENERATIONS` | `7` | integer 0–50 |
 | `GOSSIP_REVIEW_ROUNDS` | `0` | integer 0–5 |
+| `GOSSIP_SOUL_SUMMARY` | `1` | `0` skips the pre-seed soul compression; `1` runs it. `summarize-souls` ignores this |
 | `GOSSIP_THREAD_MAX_TELLINGS` | `3` | integer 1–100 |
 | `GOSSIP_THREAD_MAX_AGE_MS` | `86400000` | positive number |
 | `GOSSIP_FEED_BASE_URL` | empty | public RSS link base; empty uses the request URL |

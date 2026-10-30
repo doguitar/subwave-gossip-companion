@@ -85,6 +85,9 @@ export function loadConfig(env = process.env) {
   if (!Number.isInteger(reviewRounds) || reviewRounds < 0 || reviewRounds > 5) {
     errors.push('GOSSIP_REVIEW_ROUNDS must be an integer 0-5');
   }
+  const soulSummaryRaw = String(env.GOSSIP_SOUL_SUMMARY ?? '1').trim();
+  const soulSummary = soulSummaryRaw === '1' ? true : soulSummaryRaw === '0' ? false : null;
+  if (soulSummary === null) errors.push('GOSSIP_SOUL_SUMMARY must be 0 or 1');
   const threadMaxTellings = Number(env.GOSSIP_THREAD_MAX_TELLINGS ?? String(DEFAULT_THREAD_MAX_TELLINGS));
   if (!Number.isInteger(threadMaxTellings) || threadMaxTellings < 1 || threadMaxTellings > 100) {
     errors.push('GOSSIP_THREAD_MAX_TELLINGS must be an integer 1-100');
@@ -226,6 +229,7 @@ export function loadConfig(env = process.env) {
     seedCap,
     gossipHistoryGenerations,
     reviewRounds: Number.isInteger(reviewRounds) ? reviewRounds : DEFAULT_GOSSIP_REVIEW_ROUNDS,
+    soulSummary: soulSummary !== false,
     threadMaxTellings: Number.isInteger(threadMaxTellings) ? threadMaxTellings : DEFAULT_THREAD_MAX_TELLINGS,
     threadMaxAgeMs: Number.isFinite(threadMaxAgeMs) && threadMaxAgeMs > 0 ? threadMaxAgeMs : DEFAULT_THREAD_MAX_AGE_MS,
     refreshSecret,
@@ -353,6 +357,7 @@ const SETTINGS = [
   ['GOSSIP_SEED_CAP', String(DEFAULT_SEED_CAP)],
   ['GOSSIP_HISTORY_GENERATIONS', String(DEFAULT_GOSSIP_HISTORY_GENERATIONS)],
   ['GOSSIP_REVIEW_ROUNDS', String(DEFAULT_GOSSIP_REVIEW_ROUNDS)],
+  ['GOSSIP_SOUL_SUMMARY', '1'],
   ['GOSSIP_THREAD_MAX_TELLINGS', String(DEFAULT_THREAD_MAX_TELLINGS)],
   ['GOSSIP_THREAD_MAX_AGE_MS', String(DEFAULT_THREAD_MAX_AGE_MS)],
   ['GOSSIP_FEED_BASE_URL', null],

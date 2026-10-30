@@ -79,6 +79,7 @@ test('deployment documentation keeps the Docker, image, and Unraid port contract
   assert.doesNotMatch(unraidTemplate, /GOSSIP_FEED_BASE_URL" Target="GOSSIP_FEED_BASE_URL" Default="http:\/\/127\.0\.0\.1:8080"/);
   for (const [name, value] of [
     ['GOSSIP_REVIEW_ROUNDS', '0'],
+    ['GOSSIP_SOUL_SUMMARY', '1'],
     ['GOSSIP_TTS_TIMEOUT_MS', '300000'],
     ['GOSSIP_TTS_POLL_MS', '3000'],
     ['GOSSIP_LLM_LOG_CONTENT', 'metadata'],
