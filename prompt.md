@@ -8,9 +8,9 @@ Return one JSON object and nothing else:
 The anchors name only facts already in the rumor. Use the supplied persona IDs for an owner; return empty fields when a fact is absent.
 
 ## Rumor
-One sentence, 20 to 240 characters, in the comic register supplied in the user message.
+One or two sentences, 20 to 420 characters, in the comic register supplied in the user message. Use the second sentence when the cause and the result will not both fit in one.
 
-When the beat is private, provenance is one "I" clause in that same sentence (walked in on, overheard through the booth door, caught a glimpse). The teller's display name stays out of the quote.
+When the beat is private, provenance is one "I" clause (walked in on, overheard through the booth door, caught a glimpse). The teller's display name stays out of the quote.
 
 Voice is one tic from the teller's summary.
 

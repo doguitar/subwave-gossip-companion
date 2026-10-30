@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyReviewRevisions, reviewGossipBatch } from '../src/review.js';
+import { applyReviewRevisions, reviewGossipBatch, reviewRumorsFromPayload } from '../src/review.js';
 import { PERSONA_A, PERSONA_B, PERSONA_C } from './helpers.js';
 
 const roles = {
@@ -124,4 +124,29 @@ test('review batch marks missing canonical metadata stale and reports outcomes',
     { accepted: result.accepted, rejected: result.rejected, stale: result.stale },
     { accepted: 0, rejected: 0, stale: 1 },
   );
+});
+
+test('review trace logs each changed step with the reviewer reason', async () => {
+  const tidbit = candidate();
+  const revised = 'Gamma hid a cart behind the legal ID again';
+  const lines = [];
+  const log = { info: (line) => lines.push(line), warn() {} };
+  const payload = {
+    rumors: {
+      [tidbit.id]: { rumor: revised, why: 'Cut the throat-clearing so the cart is the whole sentence.' },
+    },
+  };
+  assert.equal(reviewRumorsFromPayload(payload).get(tidbit.id).why, 'Cut the throat-clearing so the cart is the whole sentence.');
+  const result = await reviewGossipBatch({
+    tidbits: [tidbit],
+    rolesById: new Map([[tidbit.id, { roles, register }]]),
+    roster: [PERSONA_A, PERSONA_B, PERSONA_C],
+    reviewRounds: 1,
+    generateReview: async () => payload,
+    log,
+  });
+  assert.equal(result.accepted, 1);
+  assert.ok(lines.some((line) => line.includes('review revised') && line.includes('why=') && line.includes('throat-clearing')));
+  assert.ok(lines.some((line) => line.includes('review trace') && line.includes('start=') && line.includes(original)));
+  assert.ok(lines.some((line) => line.includes('review trace') && line.includes('from=') && line.includes('to=') && line.includes(revised) && line.includes('round=1')));
 });

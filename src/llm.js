@@ -145,8 +145,9 @@ Current quoted rumor: ${t.quotedRumor || quotedRumorFromTidbit(t.text)}`;
   return `Station day: ${day}
 Review round: ${round} of ${totalRounds}
 
-Edit every quoted rumor so it is one coherent scene. Remove non-sequiturs. Keep its facts. Do not add people, props, events, or explanations.
-Return JSON shaped as { "rumors": { "<tidbit id>": "<revised quoted rumor>" } } with one entry per id.
+Edit every quoted rumor so it is one coherent scene. One or two sentences, 20 to 420 characters. Keep the second sentence when the cause and the result will not both fit in one. Remove non-sequiturs. Keep its facts. Do not add people, props, events, or explanations.
+Return JSON shaped as { "rumors": { "<tidbit id>": { "rumor": "<revised quoted rumor>", "why": "<one sentence naming the cut or the reorder>" } } } with one entry per id.
+Leave rumor unchanged and why empty when the line is already one coherent scene.
 
 ## DJ house rules
 ${String(houseRules || '(no house rules)').trim()}
@@ -198,7 +199,7 @@ const REVIEW_OUTPUT_CAP = 8192;
 
 export function reviewOutputBudget(tidbitCount) {
   const count = Math.min(REVIEW_BATCH_LIMIT, Math.max(1, Math.trunc(Number(tidbitCount) || 1)));
-  return Math.min(REVIEW_OUTPUT_CAP, LLM_OUTPUT_BUDGET.seed + (count - 1) * 400);
+  return Math.min(REVIEW_OUTPUT_CAP, LLM_OUTPUT_BUDGET.seed + (count - 1) * 520);
 }
 
 export function buildLlmRequest({ provider, apiKey, model, openaiBaseUrl, system, user, thinkingLevel, maxTokens = LLM_OUTPUT_BUDGET.seed }) {

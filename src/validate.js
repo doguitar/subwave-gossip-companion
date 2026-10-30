@@ -1,5 +1,8 @@
 const SENSITIVE = /\b(ssn|social security|home address|passport|credit card)\b|\b\d{3}-\d{2}-\d{4}\b|\b\d{3}[-.]?\d{3}[-.]?\d{4}\b|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
+/** Quoted rumor length. Two sentences so a cause and its result both fit. */
+export const MAX_RUMOR_LENGTH = 420;
+
 /** Pivot phrases that start a distinct second narrative beat (not stunt + immediate target reaction). */
 function hasSecondBeat(text) {
   if (/(?:^|[.!?]\s+)now\b/i.test(text)) return true;
@@ -34,7 +37,7 @@ export function retellableRumor(text) {
   return rumor;
 }
 
-export function validateRumor(rumor, { targets = [], minLength = 20, maxLength = 240 } = {}) {
+export function validateRumor(rumor, { targets = [], minLength = 20, maxLength = MAX_RUMOR_LENGTH } = {}) {
   const text = String(rumor || '').trim();
   if (SENSITIVE.test(text)) return { ok: false, reason: 'sensitive' };
   if (/^(?:string|text|rumor|example)$/i.test(text)) return { ok: false, reason: 'placeholder-text' };
@@ -53,7 +56,7 @@ export function validateReviewRumor(rumor, {
   roles,
   register,
   minLength = 20,
-  maxLength = 240,
+  maxLength = MAX_RUMOR_LENGTH,
 } = {}) {
   if (!roles?.teller || !Array.isArray(roles.hearers) || !Array.isArray(roles.targets) || !register) {
     return { ok: false, reason: 'missing-canonical-roles' };
